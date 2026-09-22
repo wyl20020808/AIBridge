@@ -1,0 +1,50 @@
+{
+  "fixtureSetVersion": "1.0",
+  "binding": "FROZEN",
+  "kind": "response",
+  "expect": "accept",
+  "capability": "ai.structured.generate",
+  "capabilityVersion": "1.0",
+  "case": "failed-envelope-schema-mismatch-after-repair-exhausted",
+  "document": {
+    "contractVersion": "1.0",
+    "requestId": "req-01J8Z0KQ7V00000000000001",
+    "capability": "ai.structured.generate",
+    "capabilityVersion": "1.0",
+    "status": "FAILED",
+    "error": {
+      "code": "SCHEMA_MISMATCH",
+      "message": "The generated answer did not conform to the declared output schema.",
+      "retryable": false,
+      "stage": "VALIDATION",
+      "reason": "OUTPUT_REPAIR_EXHAUSTED",
+      "details": {
+        "issueCount": 2,
+        "firstPath": "output.confidence",
+        "firstIssueCode": "AI_FIELD_INVALID",
+        "providerCategory": "UPSTREAM"
+      }
+    },
+    "usage": {
+      "inputTokens": 812,
+      "outputTokens": 301,
+      "totalTokens": 1113
+    },
+    "providerMetadata": {
+      "providerId": "main",
+      "providerFamily": "openai-compatible",
+      "modelClass": "REASONING",
+      "routeDepth": 0,
+      "attemptCount": 2,
+      "repaired": true
+    },
+    "latencyMs": 9020,
+    "finishReason": "STOP",
+    "warnings": [
+      {
+        "code": "OUTPUT_REPAIRED",
+        "detail": "one bounded repair attempt was made and did not resolve the mismatch"
+      }
+    ]
+  }
+}

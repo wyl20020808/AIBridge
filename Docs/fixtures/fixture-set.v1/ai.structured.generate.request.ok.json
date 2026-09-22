@@ -1,0 +1,86 @@
+{
+  "fixtureSetVersion": "1.0",
+  "binding": "FROZEN",
+  "kind": "request",
+  "expect": "accept",
+  "capability": "ai.structured.generate",
+  "capabilityVersion": "1.0",
+  "case": "ok-two-channels-with-untrusted-binding",
+  "document": {
+    "contractVersion": "1.0",
+    "requestId": "req-01J8Z0KQ7V00000000000001",
+    "idempotencyKey": "algoquest.idea.turn-000042.attempt-1",
+    "callerPluginId": "algoquest.learning-quests",
+    "capability": "ai.structured.generate",
+    "capabilityVersion": "1.0",
+    "profile": "reasoning",
+    "requirements": {
+      "structuredOutput": true,
+      "reasoning": true,
+      "streaming": false,
+      "vision": false,
+      "maxOutputTokens": 1200
+    },
+    "input": {
+      "instructions": "Assess how far the learner's algorithm idea has progressed against the declared concepts. Answer with the declared shape. Ask exactly one next question. Never reveal a complete solution.",
+      "context": [
+        {
+          "name": "problemTitle",
+          "label": "Problem title",
+          "type": "STRING",
+          "untrusted": false,
+          "value": "Two Sum"
+        },
+        {
+          "name": "problemExcerpt",
+          "label": "Problem statement excerpt",
+          "type": "STRING",
+          "untrusted": false,
+          "value": "Given an array of integers and a target, return the indices of two numbers that add up to the target.",
+          "maxLength": 1200
+        },
+        {
+          "name": "declaredConcepts",
+          "label": "Concepts declared by the learning node",
+          "type": "STRING_ARRAY",
+          "untrusted": false,
+          "value": "[\"hashLookup\",\"complementSearch\",\"singlePass\"]"
+        },
+        {
+          "name": "ideaText",
+          "label": "Learner's idea, in their own words",
+          "type": "STRING",
+          "untrusted": true,
+          "value": "I would keep a map from value to index while walking the array once. For each number I look up target - number in the map.",
+          "maxLength": 4000
+        },
+        {
+          "name": "hintLevel",
+          "label": "Current hint level",
+          "type": "NUMBER",
+          "untrusted": false,
+          "value": "1"
+        }
+      ]
+    },
+    "outputSchema": {
+      "kind": "REF",
+      "ref": {
+        "schemaId": "aibridge.structured.assessment",
+        "version": "1.0"
+      }
+    },
+    "policyId": "ai-structured-default",
+    "timeoutBudget": {
+      "totalMs": 20000,
+      "providerMs": 15000
+    },
+    "subjectToken": "subtok_opaque_host_minted_not_a_session_token",
+    "metadata": {
+      "locale": "zh-CN",
+      "traceId": "trace-01J8Z0KQ7V",
+      "surface": "idea-lab",
+      "correlationId": "corr-01J8Z0KQ7V"
+    }
+  }
+}

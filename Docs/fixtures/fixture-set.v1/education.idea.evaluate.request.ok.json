@@ -1,0 +1,48 @@
+{
+  "fixtureSetVersion": "1.0",
+  "binding": "ILLUSTRATIVE",
+  "kind": "request",
+  "expect": "accept",
+  "capability": "education.idea.evaluate",
+  "capabilityVersion": "1.0",
+  "case": "ok-specialized-request-input-allow-list-respected",
+  "note": "Provisional specialized schema. Consumers must keep it behind one adapter boundary. The capability's inputAllowList permits exactly these seven keys.",
+  "document": {
+    "contractVersion": "1.0",
+    "requestId": "req-01J8Z0KQ7V00000000000011",
+    "idempotencyKey": "algoquest.idea.turn-000042.attempt-1",
+    "callerPluginId": "algoquest.learning-quests",
+    "capability": "education.idea.evaluate",
+    "capabilityVersion": "1.0",
+    "profile": "reasoning",
+    "input": {
+      "problemRef": {
+        "source": "ojplatform",
+        "externalId": "prob-000123",
+        "revisionId": "rev-7"
+      },
+      "problemTitle": "Two Sum",
+      "problemStatementExcerpt": "Given an array of integers and a target, return the indices of two numbers that add up to the target.",
+      "declaredConcepts": ["hashLookup", "complementSearch", "singlePass"],
+      "ideaText": "I would keep a map from value to index while walking the array once. For each number I look up target - number in the map.",
+      "explanationText": "This is one pass because the map only grows and each lookup is constant time.",
+      "hintLevel": 1
+    },
+    "outputSchema": {
+      "kind": "REF",
+      "ref": {
+        "schemaId": "education.idea.evaluate.output",
+        "version": "1.0"
+      }
+    },
+    "policyId": "education-idea-evaluate-v1",
+    "timeoutBudget": {
+      "totalMs": 20000
+    },
+    "subjectToken": "subtok_opaque_host_minted_not_a_session_token",
+    "metadata": {
+      "locale": "zh-CN",
+      "surface": "idea-lab"
+    }
+  }
+}

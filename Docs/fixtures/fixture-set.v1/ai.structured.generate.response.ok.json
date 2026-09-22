@@ -1,0 +1,54 @@
+{
+  "fixtureSetVersion": "1.0",
+  "binding": "FROZEN",
+  "kind": "response",
+  "expect": "accept",
+  "capability": "ai.structured.generate",
+  "capabilityVersion": "1.0",
+  "case": "ok-validated-structured-output-with-safe-projection",
+  "document": {
+    "contractVersion": "1.0",
+    "requestId": "req-01J8Z0KQ7V00000000000001",
+    "capability": "ai.structured.generate",
+    "capabilityVersion": "1.0",
+    "status": "SUCCEEDED",
+    "output": {
+      "classification": "PROMISING",
+      "confidence": 0.72,
+      "conceptIds": ["hashLookup", "complementSearch", "singlePass"],
+      "issues": [
+        {
+          "code": "EDGE_CASE_MISSED",
+          "target": "ideaText",
+          "message": "The idea does not say what happens when the two indices must differ.",
+          "blocking": false
+        }
+      ],
+      "nextQuestion": "What should happen if no pair of numbers adds up to the target?",
+      "hintLevel": 1,
+      "declaresSolution": false
+    },
+    "usage": {
+      "inputTokens": 812,
+      "outputTokens": 233,
+      "totalTokens": 1045,
+      "cachedTokens": 0,
+      "estimatedCost": {
+        "value": 0.0041,
+        "currency": "USD",
+        "basis": "PRICE_TABLE"
+      }
+    },
+    "providerMetadata": {
+      "providerId": "main",
+      "providerFamily": "openai-compatible",
+      "modelClass": "REASONING",
+      "routeDepth": 0,
+      "attemptCount": 1,
+      "repaired": false
+    },
+    "latencyMs": 4180,
+    "finishReason": "STOP",
+    "warnings": []
+  }
+}

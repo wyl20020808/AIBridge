@@ -1,0 +1,45 @@
+{
+  "fixtureSetVersion": "1.0",
+  "binding": "FROZEN",
+  "kind": "response",
+  "expect": "accept",
+  "capability": "ai.text.generate",
+  "capabilityVersion": "1.0",
+  "case": "ok-free-text-with-fallback-and-estimated-usage",
+  "document": {
+    "contractVersion": "1.0",
+    "requestId": "req-01J8Z0KQ7V00000000000004",
+    "capability": "ai.text.generate",
+    "capabilityVersion": "1.0",
+    "status": "SUCCEEDED",
+    "output": {
+      "text": "Think about what you already know about looking up a value quickly. Which data structure gives you that?",
+      "finishReason": "STOP"
+    },
+    "usage": {
+      "inputTokens": 402,
+      "outputTokens": 31,
+      "totalTokens": 433
+    },
+    "providerMetadata": {
+      "providerId": "local",
+      "providerFamily": "local",
+      "modelClass": "LOCAL",
+      "routeDepth": 1,
+      "attemptCount": 2,
+      "repaired": false
+    },
+    "latencyMs": 1290,
+    "finishReason": "STOP",
+    "warnings": [
+      {
+        "code": "FALLBACK_USED",
+        "detail": "route depth 1 served the request"
+      },
+      {
+        "code": "USAGE_ESTIMATED",
+        "detail": "token counts are computed by the bridge, not provider-reported"
+      }
+    ]
+  }
+}

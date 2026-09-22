@@ -1,0 +1,54 @@
+{
+  "fixtureSetVersion": "1.0",
+  "binding": "ILLUSTRATIVE",
+  "kind": "response",
+  "expect": "accept",
+  "capability": "education.idea.evaluate",
+  "capabilityVersion": "1.0",
+  "case": "ok-evaluation-shaped-output-model-only-proposes-complete",
+  "note": "The output vocabulary is deliberately product-neutral. `classification` is a proposal; `COMPLETE` is decided by the consumer's deterministic guard, never by the model. `declaresSolution` is a self-report that is screened, never trusted.",
+  "document": {
+    "contractVersion": "1.0",
+    "requestId": "req-01J8Z0KQ7V00000000000011",
+    "capability": "education.idea.evaluate",
+    "capabilityVersion": "1.0",
+    "status": "SUCCEEDED",
+    "output": {
+      "classification": "PROMISING",
+      "confidence": 0.74,
+      "conceptIds": ["hashLookup", "complementSearch", "singlePass"],
+      "issues": [
+        {
+          "code": "EDGE_CASE_MISSED",
+          "target": "ideaText",
+          "message": "The idea does not say what to do when no pair adds up to the target.",
+          "blocking": false
+        }
+      ],
+      "nextQuestion": "What should your map hold if the same value appears twice?",
+      "hintLevel": 1,
+      "declaresSolution": false
+    },
+    "usage": {
+      "inputTokens": 903,
+      "outputTokens": 244,
+      "totalTokens": 1147,
+      "estimatedCost": {
+        "value": 0.0046,
+        "currency": "USD",
+        "basis": "PRICE_TABLE"
+      }
+    },
+    "providerMetadata": {
+      "providerId": "main",
+      "providerFamily": "openai-compatible",
+      "modelClass": "REASONING",
+      "routeDepth": 0,
+      "attemptCount": 1,
+      "repaired": false
+    },
+    "latencyMs": 4610,
+    "finishReason": "STOP",
+    "warnings": []
+  }
+}

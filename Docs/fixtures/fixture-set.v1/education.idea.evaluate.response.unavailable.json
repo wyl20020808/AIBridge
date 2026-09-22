@@ -1,0 +1,36 @@
+{
+  "fixtureSetVersion": "1.0",
+  "binding": "ILLUSTRATIVE",
+  "kind": "response",
+  "expect": "accept",
+  "capability": "education.idea.evaluate",
+  "capabilityVersion": "1.0",
+  "case": "unavailable-kill-switch-consumer-must-degrade-not-error",
+  "note": "The degradation path a consumer must handle on day one. DISABLED and UNAVAILABLE are different states and demand different words to a learner. Neither is an error page, and neither may be silently replaced by a different capability.",
+  "document": {
+    "contractVersion": "1.0",
+    "requestId": "req-01J8Z0KQ7V00000000000012",
+    "capability": "education.idea.evaluate",
+    "capabilityVersion": "1.0",
+    "status": "FAILED",
+    "error": {
+      "code": "MODEL_UNAVAILABLE",
+      "message": "This AI capability is not available for this deployment.",
+      "retryable": false,
+      "stage": "GOVERNANCE",
+      "reason": "KILL_SWITCH_GLOBAL"
+    },
+    "usage": {},
+    "providerMetadata": {
+      "providerId": "main",
+      "providerFamily": "openai-compatible",
+      "modelClass": "UNKNOWN",
+      "routeDepth": 0,
+      "attemptCount": 0,
+      "repaired": false
+    },
+    "latencyMs": 3,
+    "finishReason": "UNKNOWN",
+    "warnings": []
+  }
+}

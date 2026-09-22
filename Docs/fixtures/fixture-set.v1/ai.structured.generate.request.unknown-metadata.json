@@ -1,0 +1,54 @@
+{
+  "fixtureSetVersion": "1.0",
+  "binding": "FROZEN",
+  "kind": "request",
+  "expect": "reject",
+  "reason": "METADATA_NOT_ALLOWED",
+  "capability": "ai.structured.generate",
+  "capabilityVersion": "1.0",
+  "case": "unknown-metadata-key-is-denied-by-default",
+  "document": {
+    "contractVersion": "1.0",
+    "requestId": "req-01J8Z0KQ7V00000000000002",
+    "idempotencyKey": "algoquest.idea.turn-000043.attempt-1",
+    "callerPluginId": "algoquest.learning-quests",
+    "capability": "ai.structured.generate",
+    "capabilityVersion": "1.0",
+    "profile": "balanced",
+    "input": {
+      "instructions": "Summarise the supplied text.",
+      "context": [
+        {
+          "name": "body",
+          "label": "Text to summarise",
+          "type": "STRING",
+          "untrusted": true,
+          "value": "A learner described a two-pass approach over the array.",
+          "maxLength": 4000
+        }
+      ]
+    },
+    "outputSchema": {
+      "kind": "INLINE",
+      "schemaId": "aibridge.summary",
+      "version": "1.0",
+      "dialect": "aibridge.fields/v1",
+      "fields": [
+        {
+          "name": "summary",
+          "type": "STRING",
+          "required": true,
+          "description": "One short paragraph.",
+          "maxLength": 800
+        }
+      ]
+    },
+    "metadata": {
+      "locale": "zh-CN",
+      "traceId": "trace-01J8Z0KQ7V",
+      "surface": "idea-lab",
+      "correlationId": "corr-01J8Z0KQ7V",
+      "userEmail": "learner@example.invalid"
+    }
+  }
+}
