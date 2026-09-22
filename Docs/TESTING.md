@@ -1,0 +1,216 @@
+# AI Bridge — Test Strategy
+
+Stage 1 designs the test system. Nothing is executed yet: there is no implementation to test.
+
+The list below is not a wish list. Every item names a failure it catches, and every item is a
+**release gate** for the stage that introduces the code it covers.
+
+---
+
+## 1. Test layers
+
+| Layer | What it proves | Introduced |
+| --- | --- | --- |
+| **1. Contract tests** | `@aibridge/contracts` accepts what the contract says is valid and rejects what it says is invalid, with the exact `reason` | Stage 2 |
+| **2. Security tests** | secrets, raw errors and learner text never leak across any boundary | Stage 2 (skeleton) → Stage 3 (live) |
+| **3. Provider conformance** | every adapter behaves identically at the AI Bridge boundary | Stage 3 |
+| **4. Routing / fallback** | route resolution, chain order, budget arithmetic | Stage 5 |
+| **5. Structured output** | extraction, validation, repair, no-partial-results | Stage 4 |
+| **6. Rate limit / quota** | all four dimensions, both mechanisms | Stage 7 |
+| **7. Idempotency** | one learning turn ⇒ one billed call | Stage 6 |
+| **8. Usage** | records are complete, and contain no content | Stage 7 |
+| **9. Capability packs** | each pack's policy holds, incl. business safety | Stage 8 |
+| **10. Portability** | no forbidden dependency anywhere | Stage 2 |
+| **11. Compatibility fixtures** | [`fixtures/`](fixtures/) agree with a consumer's own parser | Stage 2, and continuously |
+
+### 1.1 Provider conformance kit
+
+A reusable suite in `@aibridge/host-sdk` that every `AiProviderAdapter` must pass unchanged.
+An adapter that needs an exemption has a design problem.
+
+Cases, minimum:
+
+| Case | Asserts |
+| --- | --- |
+| text happy path | `text` non-empty, `finishReason` in the closed set |
+| structured happy path | payload extracted and validated |
+| structured malformed | `INVALID_RESPONSE`, never a partial object |
+| structured off-schema | `SCHEMA_MISMATCH` with issue paths |
+| deadline exceeded | `TIMEOUT` within `budget ± tolerance` |
+| cancellation | `CANCELLED` is terminal even if the provider later answers |
+| error mapping | a synthetic vendor error yields exactly the mapped `code` + `providerCategory` |
+| usage absent | `usage: {}` + `USAGE_ESTIMATED` where the bridge estimates |
+| size caps | oversized output ⇒ `OUTPUT_TOO_LARGE` |
+| **no vendor type escapes** | every exported signature is free of vendor types |
+| **no secret escapes** | with a synthetic key configured, the key appears in no output |
+
+Modelled on AlgoQuest's `host-sdk` Conformance Kit idea (mutant-killing suites), adapted here
+for adapters rather than host providers.
+
+---
+
+## 2. Security tests — mechanically asserted
+
+These must fail the build. "Reviewed by a human" is not a security control.
+
+### 2.1 Secret leak
+
+| Test | Fails when |
+| --- | --- |
+| `check-no-secret-leak.mjs` scans every committed file | any file matches a credential pattern (sk-, ghp_, AKIA, xox, PEM block, JWT triplet, `apiKey: "<non-placeholder>"`) |
+| fixture scan | any fixture in [`fixtures/`](fixtures/) contains a credential-shaped value (the one in `…secret-input.json` is a **synthetic, obviously fake** marker and is allow-listed by name) |
+| response projection test | with a synthetic key configured, the key string appears in **no** of: `AiResult`, `AiError.message`, `AiError.details`, `providerMetadata`, `warnings[].detail` |
+| log capture test | with a synthetic key configured, the key appears in **no** captured log line at any level |
+| browser-bundle test | the built client bundle contains no provider credential and no `apiKeyRef` resolution |
+| consumer-request test | a consumer-visible request/response round trip never contains a credential |
+
+**A synthetic key is always used.** A test that uses a real key is itself a finding.
+
+### 2.2 Raw prompt / response logging
+
+| Test | Fails when |
+| --- | --- |
+| log capture on a request containing a sentinel learner sentence | the sentinel appears in any log line at `METADATA_ONLY` retention |
+| log capture on a provider error with sentinel prose | the sentinel appears in any **consumer-facing** log or in any `AiError.message` |
+| operator channel test | a raw provider error may appear only in the operator channel, only truncated, only credential-stripped |
+
+### 2.3 Provider raw error non-penetration
+
+| Test | Fails when |
+| --- | --- |
+| for every synthetic vendor error text `V` | `V` is a substring of `AiError.message`, `AiError.details` or `warnings[].detail` |
+| status code test | a vendor numeric status never appears in a public field |
+
+### 2.4 Vendor type containment
+
+| Test | Fails when |
+| --- | --- |
+| type-level lint over `@aibridge/core` and `@aibridge/contracts` exports | an exported signature references a vendor SDK type, a DOM `AbortSignal`, or a host type |
+
+### 2.5 `callerPluginId` unforgeable
+
+| Test | Fails when |
+| --- | --- |
+| transport-level test | a request whose `callerPluginId` is supplied by the caller body is accepted |
+| registry test | caller A can invoke a capability only caller B declared |
+| absent-identity test | a call with no host-bound identity is not rejected |
+
+### 2.6 Quota not bypassable
+
+| Test | Fails when |
+| --- | --- |
+| caller with quota exhausted | any call is dispatched |
+| `fallbackOnQuotaExceeded: false` (default) | a fallback provider is attempted after `QUOTA_EXCEEDED` |
+| key-swap test | a second `idempotencyKey` for the same logical turn does not produce a second dispatch when the consumer is honest (§10) |
+| restart test | documented as a known, bounded gap (§[`ARCHITECTURE.md`](ARCHITECTURE.md) §19) — asserted to be *bounded*, not absent |
+
+### 2.7 Output safety
+
+| Test | Fails when |
+| --- | --- |
+| unknown-field output | accepted |
+| type-coerced output (`"3"` as `NUMBER`) | accepted |
+| oversized output | accepted |
+| partial output returned after a failed validation | anything but a `FAILED` envelope |
+| `declaresSolution: true` | reaches a consumer unflagged |
+| `forbiddenOutput` rule | a capability policy rule is silently skipped |
+
+---
+
+## 3. Functional test areas
+
+### 3.1 Contract tests
+
+- envelope: closed key sets, version rejection (`1.0` vs `2.0` vs `1`), metadata allow-list,
+  forbidden-field rejection, size caps.
+- `FieldSpec`: name pattern, six types, `maxLength`, `required`.
+- error model: twelve codes only; reason/stage/detals closure; retryability defaults table.
+- fixtures: every file in [`fixtures/`](fixtures/) yields its declared `expect` **and** `reason`.
+
+### 3.2 Routing and fallback
+
+- profile → route chain resolution; requirement filtering; availability filtering.
+- fallback only on the allowed set ([`ARCHITECTURE.md`](ARCHITECTURE.md) §10.1).
+- **never** fallback on `INVALID_REQUEST`, `SCHEMA_MISMATCH`, `CONTENT_BLOCKED`.
+- fallback respects the **remaining** budget; a fallback is never started with less than
+  `MIN_VIABLE_PROVIDER_MS` left.
+- `FALLBACK_USED` and `DEGRADED_ROUTE` warnings are emitted exactly when they should be.
+
+### 3.3 Timeout
+
+- `n` fallbacks do not cost `n × totalMs`; assert the wall clock is within `totalMs + tolerance`.
+- caller budgets are clamped **down**, never up.
+- `VALIDATION_RESERVE_MS` is actually reserved.
+
+### 3.4 Structured output
+
+- extraction order: fenced JSON → balanced span → `EXTRACTION_FAILED`.
+- JSON with prose around it extracts; JSON with two objects extracts the **outermost** and is
+  documented.
+- no partial results, ever.
+- repair runs at most once, on the same provider, and reports `OUTPUT_REPAIRED`.
+
+### 3.5 Retry
+
+- retry only on the retryable set; attempt counts bounded.
+- `RATE_LIMITED` is **not** retried in process.
+- retry never crosses the overall deadline.
+
+### 3.6 Idempotency
+
+- replay returns the identical result plus `IDEMPOTENT_REPLAY`.
+- concurrent duplicates coalesce to one dispatch (assert with a counting fake).
+- same key + different body ⇒ `IDEMPOTENCY_CONFLICT`.
+
+### 3.7 Rate limit and quota
+
+- all four dimensions enforced independently; strictest wins.
+- `retryAfterMs` is populated and sane.
+- `QUOTA_EXCEEDED` is distinguishable from `RATE_LIMITED` in `reason` and in the outcome.
+
+### 3.8 Usage
+
+- every dispatch produces exactly one usage record.
+- no content in a usage record ([`SECURITY.md`](SECURITY.md) §6.1).
+- `estimatedCost` absent ⇒ no zero is fabricated.
+
+### 3.9 Capability packs
+
+- `inputAllowList` rejects a key outside it.
+- `forbiddenOutput` rules fire.
+- `education.*` policy holds: exactly one question per turn, closed misconception vocabulary,
+  `declaresSolution` screened.
+- `code.*` policy holds: no hidden testcase or reference answer in `input`; the pack never
+  returns a corrected program.
+- `maxCallsPerTurn: 1` is enforced per invocation.
+
+### 3.10 Portability
+
+- `check-adapter-coupling.mjs`: no `@ojplatform/*`, no `@algoquest/*`, no cross-repo source
+  import, in any `@aibridge/*` package.
+- the contracts package builds and parses with **zero** runtime dependencies.
+- a smoke run of `@aibridge/contracts` in a bare environment (no host, no DOM) passes.
+
+### 3.11 Kill switch and availability
+
+- global / provider / capability switches each produce `GOVERNANCE` + the matching `reason`.
+- `getStatus()` reports `DISABLED` **before** a call is attempted.
+- `DISABLED` and `UNAVAILABLE` remain distinguishable end to end.
+
+### 3.12 Cancellation
+
+- cancel before dispatch ⇒ no provider call, no usage record beyond the attempt.
+- cancel in flight ⇒ `CANCELLED`, terminal, late provider answers discarded.
+- cancellation is idempotent.
+
+---
+
+## 4. Non-goals of the test system
+
+Stated so nobody assumes coverage:
+
+- **model output quality** — evaluation datasets and prompt quality metrics are a capability-pack
+  concern (Stage 8+), not a bridge correctness concern.
+- **vendor behaviour** — a conformance kit tests the adapter's contract, not whether a vendor's
+  model is good.
+- **load testing** — recorded as a Stage 7 need; not a release gate before it.
