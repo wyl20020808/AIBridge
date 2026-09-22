@@ -1,0 +1,28 @@
+node_modules/
+dist/
+build/
+coverage/
+*.tsbuildinfo
+
+# secrets and local runtime state — never committed
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+*.p12
+secrets/
+config/providers.local.*
+config/routing.local.*
+
+# logs and scratch
+*.log
+tmp/
+.temp/
+.DS_Store
+Thumbs.db
+
+# editor / agent scratch
+.vscode/
+.idea/
+*.local.json

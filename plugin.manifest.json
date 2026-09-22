@@ -1,0 +1,32 @@
+{
+  "$comment": "AI Bridge plugin manifest — host-neutral identity and capability declaration. Stage 1: architecture only, no entrypoint, no provider connected. See Docs/ARCHITECTURE.md §23 for the manifest dialect note.",
+
+  "id": "ai.bridge",
+  "name": "AI Bridge",
+  "version": "0.1.0",
+  "description": "General-purpose AI capability provider: turns multiple AI providers into stable, uniform, governable AI capabilities.",
+
+  "pluginApiVersion": 1,
+  "contractVersions": {
+    "aiBridge": "1.0",
+    "genericAiRequest": "1.0",
+    "genericAiResponse": "1.0",
+    "aiError": "1.0"
+  },
+
+  "stage": "STAGE_1_PLUGIN_ARCHITECTURE",
+  "entry": null,
+
+  "provides": {
+    "generic": ["ai.text.generate", "ai.structured.generate"],
+    "specialized": []
+  },
+
+  "requires": {
+    "capabilities": []
+  },
+
+  "permissions": [],
+
+  "deploymentImpact": "NONE"
+}
