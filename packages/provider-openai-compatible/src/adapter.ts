@@ -1,37 +1,47 @@
 /**
- * `OpenAiCompatibleAdapter` — the Stage 3 **reference provider adapter**.
+ * `OpenAiCompatibleAdapter` — the **Generic OpenAI-Compatible / Relay Provider** (Stage 3 origin,
+ * Stage 4 positioning).
  *
- * Exactly one adapter ships this stage: enough to prove the adapter architecture against a real
- * provider, not a provider marketplace (ROADMAP Stage 3 §2).
+ * Serves relay stations (`中转站`), self-hosted compatible gateways and any third-party
+ * OpenAI-compatible endpoint. It carries **no vendor brand list** and no per-brand behaviour: a
+ * deployment's behaviour is declared through configuration (`authScheme`, `structuredOutput`,
+ * `maxTokensField`, `thinking`), never guessed from a URL.
  *
- * Provider-specific facts — the `/chat/completions` payload, the `Authorization` header, the base
- * URL, the vendor response shape and the vendor error body — are confined to this file and
- * `http.ts`. What crosses back is AI Bridge's own shape (`ProviderTextResult`,
- * `ProviderStreamEvent`, `ProviderRawError`), and the credential never crosses at all: it is
- * bound once through `bindCredentials`, held in a private field, excluded from serialization, and
- * placed only in the outbound `Authorization` header (SECURITY.md §2).
+ * The chat-completions dialect itself lives in the **internal reusable wire layer** (`wire.ts`,
+ * `http.ts`) shared with `@aibridge/provider-deepseek` and `@aibridge/provider-xiaomi-tokenplan`.
+ * Provider-specific facts — the `/chat/completions` payload, headers, base URL, authentication,
+ * response shape, error body, SSE framing — stop here and never cross the port.
+ *
+ * Security posture (ROADMAP Stage 4 §18–20):
+ *  - the base URL comes from trusted operator configuration only and is SSRF-validated (HTTPS,
+ *    no embedded credentials, no loopback/private/metadata targets) at construction and again for
+ *    every redirect target;
+ *  - the credential is bound once through `bindCredentials`, held in a private field excluded from
+ *    serialization, and placed only in the outbound auth header;
+ *  - `reasoning_content` is chain-of-thought and is discarded by the wire layer, never returned.
  */
 import {
   PROVIDER_ADAPTER_API_VERSION,
   ProviderCallError,
-  renderContextBlock,
+  fieldTableToJsonSchema,
   type AiProviderAdapter,
-  type AiFinishReason,
-  type AiUsage,
+  type CancellationToken,
   type ProviderDescriptor,
-  type ProviderRawError,
+  type ProviderHealth,
   type ProviderRequest,
   type ProviderStreamEvent,
   type ProviderStructuredResult,
   type ProviderTextResult,
   type TrustedCredentials,
 } from '@aibridge/contracts';
+import { checkEndpointSafety } from '@aibridge/core';
 import type {
   FetchLike,
-  FetchRequestInitLike,
   FetchResponseLike,
+  MaxTokensField,
   OpenAiCompatibleConfig,
   OpenAiCompatibleModelConfig,
+  StructuredOutputMode,
 } from './config.js';
 import {
   SseStreamParser,
@@ -39,10 +49,20 @@ import {
   malformedResponseError,
   mapFinishReason,
   mapUsage,
-  parseRetryAfterMs,
   parseVendorJson,
   type VendorChatCompletion,
 } from './http.js';
+import {
+  authHeaders,
+  buildChatMessages,
+  consumeChatChunk,
+  extractChatText,
+  resolveThinking,
+  sanitizeRawMessage,
+  sendPost,
+  type AuthScheme,
+  type ThinkingMapping,
+} from './wire.js';
 
 const DONE_PAYLOAD = '[DONE]';
 
@@ -66,11 +86,12 @@ function buildDescriptor(config: OpenAiCompatibleConfig): ProviderDescriptor {
   };
 }
 
-/** Mutable per-stream state. Deliberately local to one `streamText` call. */
-type StreamState = {
-  usage: AiUsage;
-  finishReason: AiFinishReason;
-  finished: boolean;
+export type ChatDialectSettings = {
+  readonly authScheme: AuthScheme;
+  readonly structuredOutput: StructuredOutputMode;
+  readonly maxTokensField: MaxTokensField;
+  readonly thinking: ThinkingMapping | undefined;
+  readonly supportsEffort: boolean;
 };
 
 export class OpenAiCompatibleAdapter implements AiProviderAdapter {
@@ -82,6 +103,8 @@ export class OpenAiCompatibleAdapter implements AiProviderAdapter {
   readonly #baseUrl: string;
   readonly #fetch: FetchLike;
   readonly #nowMs: () => number;
+  readonly #allowPrivateNetworkForDevelopment: boolean;
+  readonly #dialect: ChatDialectSettings;
   /**
    * The resolved credential. Private, never serialized, never returned, never logged.
    * `#credentialHandle` (the operator-side reference) is safe to log; the value is not.
@@ -89,19 +112,38 @@ export class OpenAiCompatibleAdapter implements AiProviderAdapter {
   #secret: string | null = null;
   #credentialHandle: string | null = null;
 
-  constructor(config: OpenAiCompatibleConfig) {
+  constructor(config: OpenAiCompatibleConfig, dialect: Partial<ChatDialectSettings> = {}) {
     this.id = config.id;
     this.#baseUrl = config.baseUrl.replace(/\/+$/, '');
     this.#fetch = config.fetch ?? (globalThis as unknown as { fetch: FetchLike }).fetch;
     this.#nowMs = config.nowMs ?? ((): number => Date.now());
+    this.#allowPrivateNetworkForDevelopment = config.allowPrivateNetworkForDevelopment === true;
+    this.#dialect = {
+      authScheme: dialect.authScheme ?? config.authScheme ?? 'BEARER',
+      structuredOutput: dialect.structuredOutput ?? config.structuredOutput ?? 'JSON_OBJECT',
+      maxTokensField: dialect.maxTokensField ?? config.maxTokensField ?? 'max_tokens',
+      thinking: dialect.thinking ?? config.thinking,
+      supportsEffort: dialect.supportsEffort ?? false,
+    };
+    // Fail closed on an obviously unsafe endpoint, at construction rather than at first call.
+    const safety = checkEndpointSafety(this.#baseUrl, {
+      allowPrivateNetworkForDevelopment: this.#allowPrivateNetworkForDevelopment,
+    });
+    if (!safety.safe) {
+      throw new ProviderCallError({
+        category: 'BAD_REQUEST',
+        reason: 'PROVIDER_REQUEST_REJECTED',
+        rawMessage: `unsafe endpoint (${safety.rejection})`,
+      });
+    }
     this.descriptor = buildDescriptor(config);
   }
 
   /**
    * Trusted credential binding — the only door a secret value enters through.
    *
-   * The handle is kept for operator correlation; the value serves the outbound `Authorization`
-   * header only and is excluded from every serialization.
+   * The handle is kept for operator correlation; the value serves the outbound auth header only
+   * and is excluded from every serialization.
    */
   bindCredentials(credentials: TrustedCredentials): void {
     this.#secret = credentials.secret;
@@ -126,24 +168,25 @@ export class OpenAiCompatibleAdapter implements AiProviderAdapter {
   }
 
   async generateText(request: ProviderRequest): Promise<ProviderTextResult> {
-    const response = await this.#send(request, false);
+    const response = await this.#send(request);
     return this.#toTextResult(await this.#readCompletion(response));
   }
 
   async generateStructured(request: ProviderRequest): Promise<ProviderStructuredResult> {
-    const response = await this.#send(request, false);
+    const response = await this.#send(request, { structured: true });
     const result = this.#toTextResult(await this.#readCompletion(response));
     return { text: result.text, usage: result.usage, finishReason: result.finishReason };
   }
 
   /**
    * SSE in, AI Bridge's own `ProviderStreamEvent`s out. Exactly one terminal event (`FINISH` xor
-   * `ERROR`): a mapped failure is an `ERROR` event, never a vendor frame.
+   * `ERROR`): a mapped failure is an `ERROR` event, never a vendor frame, and `reasoning_content`
+   * deltas are dropped by the wire layer.
    */
   async *streamText(request: ProviderRequest): AsyncIterable<ProviderStreamEvent> {
     let response: FetchResponseLike;
     try {
-      response = await this.#send(request, true);
+      response = await this.#send(request, { stream: true });
     } catch (error) {
       if (error instanceof ProviderCallError) {
         yield { kind: 'ERROR', error: error.rawError };
@@ -159,19 +202,38 @@ export class OpenAiCompatibleAdapter implements AiProviderAdapter {
     }
 
     const parser = new SseStreamParser();
-    const state: StreamState = { usage: {}, finishReason: 'UNKNOWN', finished: false };
+    let usage = {};
+    let finishReason = 'UNKNOWN' as ReturnType<typeof mapFinishReason>;
+    let finished = false;
     const reader = body.getReader();
     try {
       for (;;) {
         const chunk = await reader.read();
         const payloads = chunk.done ? parser.flush() : parser.push(chunk.value ?? new Uint8Array());
         for (const payload of payloads) {
-          const outcome = consumePayload(payload, state);
-          if (outcome.event !== null) {
-            yield outcome.event;
+          if (payload.trim() === DONE_PAYLOAD) {
+            continue;
           }
-          if (outcome.terminal) {
+          const parsed = parseVendorJson(payload);
+          if (parsed === null) {
+            yield { kind: 'ERROR', error: malformedResponseError('a streamed frame was not JSON') };
             return;
+          }
+          if (parsed.error !== undefined && parsed.error !== null) {
+            const errorBody = parsed as unknown as { error?: { type?: unknown; code?: unknown; message?: unknown } };
+            yield {
+              kind: 'ERROR',
+              error: classifyHttpFailure({ status: 500, body: errorBody }),
+            };
+            return;
+          }
+          usage = { ...usage, ...mapUsage(parsed.usage) };
+          const outcome = consumeChatChunk(parsed, mapFinishReason);
+          if (outcome.kind === 'DELTA') {
+            yield { kind: 'TEXT_DELTA', text: outcome.text };
+          } else if (outcome.kind === 'FINISH') {
+            finishReason = outcome.finishReason;
+            finished = true;
           }
         }
         if (chunk.done) {
@@ -182,81 +244,97 @@ export class OpenAiCompatibleAdapter implements AiProviderAdapter {
       reader.releaseLock?.();
     }
 
-    if (!state.finished) {
+    if (!finished) {
       yield { kind: 'ERROR', error: malformedResponseError('the stream ended without a finish event') };
       return;
     }
-    yield { kind: 'FINISH', usage: state.usage, finishReason: state.finishReason };
+    yield { kind: 'FINISH', usage, finishReason };
+  }
+
+  /** A port that cannot probe says so rather than pretending (ARCHITECTURE.md §7.2). */
+  probe(_signal: CancellationToken): Promise<ProviderHealth> {
+    return Promise.resolve({ status: 'HEALTHY', checkedAtMs: this.#nowMs() });
   }
 
   /* -------------------------------------------------------------------------------------------
    * Provider-specific internals
    * ---------------------------------------------------------------------------------------- */
 
-  /** Build the vendor payload and perform the call. Everything vendor-shaped happens here. */
-  async #send(request: ProviderRequest, stream: boolean): Promise<FetchResponseLike> {
-    const controller = new AbortController();
-    let abortedByDeadline = false;
-    const unsubscribe = request.cancellation?.onCancel(() => controller.abort()) ?? ((): void => undefined);
-    const timer = setTimeout(() => {
-      abortedByDeadline = true;
-      controller.abort();
-    }, Math.max(0, request.deadlineAtMs - this.#nowMs()));
-    try {
-      const messages: ReadonlyArray<Record<string, unknown>> = [
-        {
-          role: 'system',
-          content:
-            request.outputFormatInstruction === undefined
-              ? request.instructions
-              : `${request.instructions}\n\n${request.outputFormatInstruction}`,
-        },
-        ...(request.context.length > 0 ? [{ role: 'user', content: renderContextBlock(request.context) }] : []),
-      ];
-      const payload: Record<string, unknown> = {
-        model: request.modelRef,
-        messages,
-        ...(request.maxOutputTokens === undefined ? {} : { max_tokens: request.maxOutputTokens }),
-        ...(stream ? { stream: true, stream_options: { include_usage: true } } : {}),
-      };
-      const init: FetchRequestInitLike = {
-        method: 'POST',
-        headers: {
-          'content-type': 'application/json',
-          ...(this.#secret === null ? {} : { authorization: `Bearer ${this.#secret}` }),
-        },
-        body: JSON.stringify(payload),
-        signal: controller.signal,
-      };
+  /** Build the chat-completions payload and POST it. Everything dialect-shaped happens here. */
+  async #send(
+    request: ProviderRequest,
+    options: { readonly structured?: boolean; readonly stream?: boolean } = {},
+  ): Promise<FetchResponseLike> {
+    const structured = options.structured === true;
+    const stream = options.stream === true;
+    const thinking = resolveThinking(this.#dialect.thinking, request.profile, {});
+    const messages = buildChatMessages(request.instructions, request.outputFormatInstruction, request.context);
+    const payload: Record<string, unknown> = {
+      model: request.modelRef,
+      messages,
+      ...(request.maxOutputTokens === undefined
+        ? {}
+        : { [this.#dialect.maxTokensField]: request.maxOutputTokens }),
+      ...(thinking.kind === 'omit'
+        ? {}
+        : thinking.kind === 'disabled'
+          ? { thinking: { type: 'disabled' } }
+          : {
+              thinking: { type: 'enabled' },
+              ...(thinking.effort !== undefined && this.#dialect.supportsEffort
+                ? { reasoning_effort: thinking.effort }
+                : {}),
+            }),
+      ...(structured ? this.#responseFormat(request) : {}),
+      ...(stream ? { stream: true, stream_options: { include_usage: true } } : {}),
+    };
 
-      let response: FetchResponseLike;
-      try {
-        response = await this.#fetch(`${this.#baseUrl}/chat/completions`, init);
-      } catch {
-        // Transport failure (DNS, TLS, socket, abort). The platform message never propagates.
-        throw new ProviderCallError(
-          abortedByDeadline
-            ? { category: 'UPSTREAM', reason: 'PROVIDER_TIMEOUT', rawMessage: 'the outbound call was abandoned at its deadline' }
-            : { category: 'UPSTREAM', reason: 'PROVIDER_UNAVAILABLE', rawMessage: 'transport failure' },
-        );
-      }
-      if (!response.ok) {
-        const text = await response.text().catch(() => '');
-        const body = parseVendorJson(text) ?? {};
-        const retryAfterMs = parseRetryAfterMs(response.headers.get('retry-after'));
-        throw new ProviderCallError(
-          classifyHttpFailure({
-            status: response.status,
-            body: body as { error?: { type?: unknown; code?: unknown; message?: unknown } },
-            ...(retryAfterMs === undefined ? {} : { retryAfterMs }),
-          }),
-        );
-      }
-      return response;
-    } finally {
-      clearTimeout(timer);
-      unsubscribe();
+    const headers: Record<string, string> = {
+      'content-type': 'application/json',
+      ...(this.#secret === null ? {} : authHeaders(this.#dialect.authScheme, this.#secret)),
+    };
+
+    return sendPost({
+      fetch: this.#fetch,
+      url: `${this.#baseUrl}/chat/completions`,
+      body: JSON.stringify(payload),
+      headers,
+      deadlineAtMs: request.deadlineAtMs,
+      nowMs: this.#nowMs,
+      ...(request.cancellation === undefined ? {} : { cancellation: request.cancellation }),
+      allowPrivateNetworkForDevelopment: this.#allowPrivateNetworkForDevelopment,
+    });
+  }
+
+  /**
+   * The structured-output request shape for this dialect.
+   *
+   * `JSON_SCHEMA` sends the provider's native strict schema (first layer only — the AI Bridge
+   * validator remains the final contract boundary); `JSON_OBJECT` sends JSON mode; `PROMPT_ONLY`
+   * sends nothing and relies on the output-format instruction.
+   */
+  #responseFormat(request: ProviderRequest): Record<string, unknown> {
+    if (this.#dialect.structuredOutput === 'PROMPT_ONLY') {
+      return {};
     }
+    if (this.#dialect.structuredOutput === 'JSON_OBJECT') {
+      return { response_format: { type: 'json_object' } };
+    }
+    const schema = request.outputSchema;
+    if (schema === undefined || schema.kind !== 'INLINE') {
+      // Native schema needs an inline field table; degrade to JSON mode, never to silence.
+      return { response_format: { type: 'json_object' } };
+    }
+    const jsonSchema = fieldTableToJsonSchema(schema);
+    if (jsonSchema === null) {
+      return { response_format: { type: 'json_object' } };
+    }
+    return {
+      response_format: {
+        type: 'json_schema',
+        json_schema: { name: schema.schemaId, strict: true, schema: jsonSchema },
+      },
+    };
   }
 
   async #readCompletion(response: FetchResponseLike): Promise<VendorChatCompletion> {
@@ -269,66 +347,28 @@ export class OpenAiCompatibleAdapter implements AiProviderAdapter {
   }
 
   #toTextResult(completion: VendorChatCompletion): ProviderTextResult {
-    const choice = completion.choices?.[0];
-    const finishReason = mapFinishReason(choice?.finish_reason);
-    const content = choice?.message?.content;
-    if (typeof content === 'string') {
-      return { text: content, usage: mapUsage(completion.usage), finishReason };
+    const outcome = extractChatText(completion, mapFinishReason);
+    const usage = mapUsage(completion.usage);
+    if (outcome.hasContent) {
+      // An empty-but-present answer is real (JSON mode documents empty content); the structured
+      // pipeline downstream turns it into an extraction failure, never a silent success.
+      return { text: outcome.text, usage, finishReason: outcome.finishReason };
     }
-    if (finishReason === 'CONTENT_FILTER') {
+    if (outcome.finishReason === 'CONTENT_FILTER') {
       // A filtered answer is a signal for the consumer's guard, not an error (ARCHITECTURE.md §5.3).
-      return { text: '', usage: mapUsage(completion.usage), finishReason };
+      return { text: '', usage, finishReason: 'CONTENT_FILTER' };
     }
     throw new ProviderCallError(malformedResponseError('the response carried no message content'));
   }
+
+  /** Operator-only raw-message sanitation for adapters that surface vendor prose. */
+  sanitizeForOperator(message: string): string {
+    return sanitizeRawMessage(message, this.#secret === null ? [] : [this.#secret]);
+  }
 }
 
-/**
- * Consume one SSE `data:` payload. Returns the event to emit (delta or terminal error) and
- * whether the stream is over. Vendor frames are read and discarded here.
- */
-function consumePayload(
-  payload: string,
-  state: StreamState,
-): { readonly event: ProviderStreamEvent | null; readonly terminal: boolean } {
-  if (payload.trim() === DONE_PAYLOAD) {
-    return { event: null, terminal: false };
-  }
-  const completion = parseVendorJson(payload);
-  if (completion === null) {
-    return { event: { kind: 'ERROR', error: malformedResponseError('a streamed frame was not JSON') }, terminal: true };
-  }
-  const vendorError = completion.error;
-  if (vendorError !== undefined && vendorError !== null) {
-    return {
-      event: {
-        kind: 'ERROR',
-        error: classifyHttpFailure({
-          status: 500,
-          body: { error: vendorError as { type?: unknown; code?: unknown; message?: unknown } },
-        }),
-      },
-      terminal: true,
-    };
-  }
-  state.usage = { ...state.usage, ...mapUsage(completion.usage) };
-  const choice = completion.choices?.[0];
-  if (choice === undefined) {
-    return { event: null, terminal: false };
-  }
-  const delta = choice.delta?.content;
-  if (typeof delta === 'string' && delta.length > 0) {
-    return { event: { kind: 'TEXT_DELTA', text: delta }, terminal: false };
-  }
-  if (choice.finish_reason !== undefined && choice.finish_reason !== null) {
-    state.finishReason = mapFinishReason(choice.finish_reason);
-    state.finished = true;
-  }
-  return { event: null, terminal: false };
-}
-
-/** Exported for the conformance tests: the mapped failure a raw error body produces. */
-export function classifyVendorErrorBody(body: unknown): ProviderRawError {
+/** Re-exported for the conformance tests: the mapped failure a raw error body produces. */
+export function classifyVendorErrorBody(body: unknown): ReturnType<typeof classifyHttpFailure> {
   return classifyHttpFailure({
     status: 400,
     body: body as { error?: { type?: unknown; code?: unknown; message?: unknown } },

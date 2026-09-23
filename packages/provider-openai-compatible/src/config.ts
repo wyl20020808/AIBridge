@@ -9,6 +9,17 @@
  * `scripts/check-portability.mjs` enforces that mechanically.
  */
 import type { ModelProfile, ProviderFeature, ProviderPricing } from '@aibridge/contracts';
+import type { AuthScheme, ThinkingMapping } from './wire.js';
+
+/** How a structured call asks the endpoint for machine-readable output. */
+export const STRUCTURED_OUTPUT_MODES = ['PROMPT_ONLY', 'JSON_OBJECT', 'JSON_SCHEMA'] as const;
+
+export type StructuredOutputMode = (typeof STRUCTURED_OUTPUT_MODES)[number];
+
+/** Which request field carries the output token cap. MiMo documents `max_completion_tokens`. */
+export const MAX_TOKENS_FIELDS = ['max_tokens', 'max_completion_tokens'] as const;
+
+export type MaxTokensField = (typeof MAX_TOKENS_FIELDS)[number];
 
 /** The request shape `fetch`-likes accept. Self-declared; a real `fetch` satisfies it at runtime. */
 export type FetchRequestInitLike = {
@@ -17,6 +28,8 @@ export type FetchRequestInitLike = {
   readonly body?: string;
   /** An abort signal from any platform. Typed as `unknown` on purpose — no DOM type here. */
   readonly signal?: unknown;
+  /** Redirect policy. The wire layer always sends `manual` and re-validates each target. */
+  readonly redirect?: string;
 };
 
 /** The response header access this adapter needs. */
@@ -76,4 +89,14 @@ export type OpenAiCompatibleConfig = {
   readonly fetch?: FetchLike;
   /** Injectable clock for deadline arithmetic. Defaults to `Date.now`. */
   readonly nowMs?: () => number;
+  /** Closed auth enum. Default `BEARER`. Never an arbitrary header map (ROADMAP Stage 4 §18). */
+  readonly authScheme?: AuthScheme;
+  /** How structured calls request machine-readable output. Default `JSON_OBJECT`. */
+  readonly structuredOutput?: StructuredOutputMode;
+  /** Which field carries the output token cap. Default `max_tokens`. */
+  readonly maxTokensField?: MaxTokensField;
+  /** Thinking/chain-of-thought mapping. Absent ⇒ the dialect sends no thinking fields. */
+  readonly thinking?: ThinkingMapping;
+  /** Development only, default `false`: relaxes HTTPS and private-network endpoint rules. */
+  readonly allowPrivateNetworkForDevelopment?: boolean;
 };

@@ -70,9 +70,19 @@ export function classifyHttpFailure(input: {
   if (vendorType.includes('content_filter')) {
     return { category: 'CONTENT_FILTER', reason: 'PROVIDER_CONTENT_FILTER', ...base };
   }
+  if (vendorType.includes('insufficient')) {
+    // `insufficient_quota` / `insufficient_balance`: the configured account cannot pay. Not
+    // transient — an operator must repair the deployment (OpenAI 429 insufficient_quota,
+    // DeepSeek 402 Insufficient Balance).
+    return { category: 'AUTH', reason: 'PROVIDER_AUTH_FAILED', ...base };
+  }
 
   const status = input.status;
   if (status === 401 || status === 403) {
+    return { category: 'AUTH', reason: 'PROVIDER_AUTH_FAILED', ...base };
+  }
+  if (status === 402) {
+    // DeepSeek documents 402 "Insufficient Balance".
     return { category: 'AUTH', reason: 'PROVIDER_AUTH_FAILED', ...base };
   }
   if (status === 429) {
@@ -98,7 +108,10 @@ export function malformedResponseError(rawMessage: string): ProviderRawError {
   return { category: 'UPSTREAM', reason: 'PROVIDER_BAD_RESPONSE', rawMessage };
 }
 
-/** Map a vendor `finish_reason` to the closed set. An unknown spelling is `UNKNOWN`, never guessed. */
+/**
+ * Map a vendor `finish_reason` to the closed set. An unknown spelling (`tool_calls`,
+ * `repetition_truncation`, …) is `UNKNOWN`, never guessed.
+ */
 export function mapFinishReason(value: unknown): AiFinishReason {
   if (value === 'stop') return 'STOP';
   if (value === 'length') return 'LENGTH';

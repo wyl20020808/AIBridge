@@ -21,6 +21,7 @@
     "build": "tsc -b"
   },
   "dependencies": {
-    "@aibridge/contracts": "0.1.0"
+    "@aibridge/contracts": "0.1.0",
+    "@aibridge/core": "0.1.0"
   }
 }

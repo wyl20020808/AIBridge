@@ -222,6 +222,58 @@ export function outputSchemaFieldNames(schema: OutputSchema): readonly string[] 
   return schema.kind === 'INLINE' ? schema.fields.map((field) => field.name) : [];
 }
 
+/**
+ * Translate the `aibridge.fields/v1` field table to a plain JSON Schema object.
+ *
+ * Used when a provider's **native** structured output (strict JSON Schema) is declared and opted
+ * into. It is a first layer only: AI Bridge's deterministic validator remains the final contract
+ * boundary (ROADMAP Stage 4 §3). Unknown field types are refused rather than approximated.
+ */
+export function fieldTableToJsonSchema(
+  schema: OutputSchema & { readonly kind: 'INLINE' },
+): Record<string, unknown> | null {
+  const properties: Record<string, unknown> = {};
+  const required: string[] = [];
+  for (const field of schema.fields) {
+    const property = fieldProperty(field.type, field.description, field.maxLength);
+    if (property === null) {
+      return null;
+    }
+    properties[field.name] = property;
+    if (field.required) {
+      required.push(field.name);
+    }
+  }
+  return {
+    type: 'object',
+    properties,
+    required,
+    additionalProperties: false,
+  };
+}
+
+function fieldProperty(type: FieldType, description: string, maxLength: number | undefined): Record<string, unknown> | null {
+  switch (type) {
+    case 'STRING':
+      return { type: 'string', description, ...(maxLength === undefined ? {} : { maxLength }) };
+    case 'NUMBER':
+      return { type: 'number', description };
+    case 'BOOLEAN':
+      return { type: 'boolean', description };
+    case 'STRING_ARRAY':
+      return { type: 'array', items: { type: 'string' }, description };
+    case 'OBJECT':
+      return { type: 'object', description, additionalProperties: false };
+    case 'OBJECT_ARRAY':
+      return { type: 'array', items: { type: 'object', additionalProperties: false }, description };
+    default: {
+      const exhaustive: never = type;
+      void exhaustive;
+      return null;
+    }
+  }
+}
+
 /** Resolve a `REF` to an inline schema. A resolver that cannot resolve returns `null`. */
 export function resolveOutputSchema(
   schema: OutputSchema,

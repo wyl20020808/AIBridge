@@ -16,7 +16,7 @@ const ALLOWED_IMPORTS = {
   core: new Set(['@aibridge/contracts']),
   'host-sdk': new Set(['@aibridge/contracts', '@aibridge/core']),
   runtime: new Set(['@aibridge/contracts', '@aibridge/core', '@aibridge/host-sdk']),
-  'provider-openai-compatible': new Set(['@aibridge/contracts']),
+  'provider-openai-compatible': new Set(['@aibridge/contracts', '@aibridge/core']),
 };
 
 const ALLOWED_DEPENDENCIES = {
@@ -24,7 +24,7 @@ const ALLOWED_DEPENDENCIES = {
   core: ['@aibridge/contracts'],
   'host-sdk': ['@aibridge/contracts', '@aibridge/core'],
   runtime: ['@aibridge/contracts', '@aibridge/core', '@aibridge/host-sdk'],
-  'provider-openai-compatible': ['@aibridge/contracts'],
+  'provider-openai-compatible': ['@aibridge/contracts', '@aibridge/core'],
 };
 
 const IMPORT_SPECIFIER = /(?:from\s+|require\(\s*|import\(\s*)['"]([^'"]+)['"]/g;

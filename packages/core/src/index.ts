@@ -70,4 +70,14 @@ export {
   allowsCallerOutputSchema,
 } from './descriptors.js';
 
+export {
+  ENDPOINT_REJECTIONS,
+  checkEndpointSafety,
+  endpointIssue,
+  validateEndpointUrl,
+  type EndpointCheck,
+  type EndpointRejection,
+  type EndpointSafetyOptions,
+} from './endpoint-safety.js';
+
 export { AiCapabilityDirectory, type CapabilityDirectoryOptions } from './directory.js';
