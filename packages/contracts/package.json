@@ -1,0 +1,23 @@
+{
+  "name": "@aibridge/contracts",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Portable AI Bridge contracts: version constants, envelopes, error vocabulary, structured schema, strict parsers. Zero runtime dependencies.",
+  "license": "UNLICENSED",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "sideEffects": false,
+  "scripts": {
+    "build": "tsc -b"
+  }
+}
