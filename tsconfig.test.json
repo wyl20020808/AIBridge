@@ -13,6 +13,7 @@
       "@aibridge/contracts": ["packages/contracts/src/index.ts"],
       "@aibridge/core": ["packages/core/src/index.ts"],
       "@aibridge/host-sdk": ["packages/host-sdk/src/index.ts"],
+      "@aibridge/governance": ["packages/governance/src/index.ts"],
       "@aibridge/runtime": ["packages/runtime/src/index.ts"],
       "@aibridge/provider-openai-compatible": ["packages/provider-openai-compatible/src/index.ts"],
       "@aibridge/provider-openai": ["packages/provider-openai/src/index.ts"],

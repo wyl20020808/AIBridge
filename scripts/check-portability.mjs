@@ -26,6 +26,7 @@ const PACKAGE_DIRS = [
   'contracts',
   'core',
   'host-sdk',
+  'governance',
   'runtime',
   'provider-openai-compatible',
   'provider-openai',

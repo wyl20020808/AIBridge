@@ -1,0 +1,27 @@
+{
+  "name": "@aibridge/governance",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "AI Bridge reliability and governance primitives: fallback and retry policy, circuit breaker, runtime health, idempotency, rate limiting, quota with reservations, usage ledger, versioned cost estimation, budget enforcement and safe observability. Depends only on @aibridge/contracts and @aibridge/host-sdk.",
+  "license": "UNLICENSED",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "sideEffects": false,
+  "scripts": {
+    "build": "tsc -b"
+  },
+  "dependencies": {
+    "@aibridge/contracts": "0.1.0",
+    "@aibridge/host-sdk": "0.1.0"
+  }
+}

@@ -23,6 +23,7 @@
   "dependencies": {
     "@aibridge/contracts": "0.1.0",
     "@aibridge/core": "0.1.0",
+    "@aibridge/governance": "0.1.0",
     "@aibridge/host-sdk": "0.1.0"
   }
 }

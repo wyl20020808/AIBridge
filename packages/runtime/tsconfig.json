@@ -6,6 +6,6 @@
     "tsBuildInfoFile": "dist/.tsbuildinfo",
     "types": ["node"]
   },
-  "references": [{ "path": "../contracts" }, { "path": "../core" }, { "path": "../host-sdk" }],
+  "references": [{ "path": "../contracts" }, { "path": "../core" }, { "path": "../host-sdk" }, { "path": "../governance" }],
   "include": ["src/**/*.ts"]
 }

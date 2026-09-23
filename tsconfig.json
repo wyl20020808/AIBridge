@@ -4,6 +4,7 @@
     { "path": "packages/contracts" },
     { "path": "packages/core" },
     { "path": "packages/host-sdk" },
+    { "path": "packages/governance" },
     { "path": "packages/runtime" },
     { "path": "packages/provider-openai-compatible" },
     { "path": "packages/provider-openai" },
