@@ -27,6 +27,9 @@ export * from './requirements.js';
 // The structured output schema dialect.
 export * from './schema.js';
 
+// The generic capability payloads (context bundle, generate inputs).
+export * from './input.js';
+
 // Envelopes and their parts.
 export * from './metadata.js';
 export * from './warnings.js';
@@ -38,8 +41,14 @@ export * from './envelope.js';
 export * from './context.js';
 export * from './response.js';
 
+// Streaming — the minimal additive stream event contract (Stage 3).
+export * from './stream.js';
+
 // Provider and model descriptions, plus the provider adapter port.
 export * from './provider.js';
+
+// The two prompt channels, rendered from contract values.
+export * from './prompt.js';
 
 // Governance.
 export * from './killswitch.js';

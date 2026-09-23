@@ -38,8 +38,29 @@ export type CapabilityRequirements = {
 
 /** Requirements that no V1 route can satisfy. Empty for a V1-satisfiable request. */
 export function v1UnsupportedRequirements(requirements: CapabilityRequirements): readonly string[] {
+  return unsatisfiableRequirements(requirements, 'GENERATE');
+}
+
+/**
+ * The delivery mode a requirement set is checked against (Stage 3 additive note).
+ *
+ * Streaming is a **delivery concern, not a capability** (CAPABILITIES.md §4). `GENERATE` is the
+ * non-streaming delivery and keeps the frozen V1 rule: `streaming: true` is unsatisfiable there,
+ * so a caller gets `NO_ROUTE` rather than a quiet downgrade. `STREAM` is the incremental delivery
+ * (`AiStreamEvent`), where `streaming: true` is satisfiable when the resolved route supports it —
+ * and `vision` remains out of V1 either way.
+ */
+export const REQUIREMENT_DELIVERIES = ['GENERATE', 'STREAM'] as const;
+
+export type RequirementDelivery = (typeof REQUIREMENT_DELIVERIES)[number];
+
+/** Requirements no route can satisfy for this delivery mode. */
+export function unsatisfiableRequirements(
+  requirements: CapabilityRequirements,
+  delivery: RequirementDelivery = 'GENERATE',
+): readonly string[] {
   const unsupported: string[] = [];
-  if (requirements.streaming === true) unsupported.push('streaming');
+  if (delivery === 'GENERATE' && requirements.streaming === true) unsupported.push('streaming');
   if (requirements.vision === true) unsupported.push('vision');
   return unsupported;
 }

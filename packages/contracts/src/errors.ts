@@ -57,6 +57,9 @@ export type AiErrorStage = (typeof AI_ERROR_STAGES)[number];
  *  - `OUTPUT_SCHEMA_OVERRIDE_FORBIDDEN` — a caller may not replace a specialized capability's
  *    output schema (Stage 2, §10).
  *  - `JSON_PARSE_FAILED` — a distinct, stable reason for extraction's parse step (Stage 2, §19).
+ *  - `PROVIDER_AUTH_FAILED`, `PROVIDER_REQUEST_REJECTED`, `PROVIDER_UNAVAILABLE` — Stage 3, so that
+ *    every closed `ProviderCategory` maps to exactly one reason and a provider-side failure is
+ *    never misreported as a consumer bug or as upstream garbage.
  *
  * Adding a reason or a detail key is a **minor** change.
  */
@@ -100,6 +103,9 @@ export const AI_ERROR_REASONS = [
   'PROVIDER_TIMEOUT',
   'PROVIDER_BAD_RESPONSE',
   'PROVIDER_CONTENT_FILTER',
+  'PROVIDER_AUTH_FAILED',
+  'PROVIDER_REQUEST_REJECTED',
+  'PROVIDER_UNAVAILABLE',
   // EXTRACTION
   'EXTRACTION_FAILED',
   'JSON_PARSE_FAILED',
@@ -170,6 +176,9 @@ export const REASON_META: Readonly<Record<AiErrorReason, ReasonMeta>> = {
   PROVIDER_TIMEOUT: { code: 'TIMEOUT', stage: 'PROVIDER', retryable: true },
   PROVIDER_BAD_RESPONSE: { code: 'INVALID_RESPONSE', stage: 'PROVIDER', retryable: true },
   PROVIDER_CONTENT_FILTER: { code: 'CONTENT_BLOCKED', stage: 'PROVIDER', retryable: false },
+  PROVIDER_AUTH_FAILED: { code: 'PROVIDER_ERROR', stage: 'PROVIDER', retryable: false },
+  PROVIDER_REQUEST_REJECTED: { code: 'INVALID_REQUEST', stage: 'PROVIDER', retryable: false },
+  PROVIDER_UNAVAILABLE: { code: 'PROVIDER_ERROR', stage: 'PROVIDER', retryable: true },
 
   EXTRACTION_FAILED: { code: 'INVALID_RESPONSE', stage: 'EXTRACTION', retryable: true },
   JSON_PARSE_FAILED: { code: 'INVALID_RESPONSE', stage: 'EXTRACTION', retryable: true },
@@ -332,6 +341,9 @@ export const DETAIL_KEYS_BY_REASON: Readonly<Partial<Record<AiErrorReason, reado
   PROVIDER_TIMEOUT: ['providerCategory'],
   PROVIDER_BAD_RESPONSE: ['providerCategory'],
   PROVIDER_CONTENT_FILTER: ['providerCategory'],
+  PROVIDER_AUTH_FAILED: ['providerCategory'],
+  PROVIDER_REQUEST_REJECTED: ['providerCategory'],
+  PROVIDER_UNAVAILABLE: ['providerCategory'],
 
   EXTRACTION_FAILED: ['strategy'],
   JSON_PARSE_FAILED: ['position'],
@@ -410,4 +422,26 @@ export function isAiErrorReason(value: unknown): value is AiErrorReason {
 
 export function isProviderCategory(value: unknown): value is ProviderCategory {
   return typeof value === 'string' && (PROVIDER_CATEGORIES as readonly string[]).includes(value);
+}
+
+/**
+ * The default `category → reason` mapping (Stage 3).
+ *
+ * An adapter may name a more specific reason on `ProviderRawError.reason`; when it does not, this
+ * table gives the closed categories exactly one home each, so two adapters cannot disagree about
+ * what "AUTH" means. `REASON_META` remains the single source for code, stage and retryability.
+ */
+export const REASON_BY_PROVIDER_CATEGORY: Readonly<Record<ProviderCategory, AiErrorReason>> = {
+  RATE_LIMIT: 'PROVIDER_THROTTLED',
+  AUTH: 'PROVIDER_AUTH_FAILED',
+  OVERLOADED: 'PROVIDER_OVERLOADED',
+  BAD_REQUEST: 'PROVIDER_REQUEST_REJECTED',
+  CONTENT_FILTER: 'PROVIDER_CONTENT_FILTER',
+  UPSTREAM: 'PROVIDER_UNAVAILABLE',
+  UNKNOWN: 'PROVIDER_UNAVAILABLE',
+};
+
+/** The generic reason a mapped provider failure normalizes to. */
+export function reasonForProviderCategory(category: ProviderCategory): AiErrorReason {
+  return REASON_BY_PROVIDER_CATEGORY[category];
 }

@@ -13,7 +13,8 @@ import { at, createIssue, invalid, valid } from './issue.js';
 import { isModelProfile, parseModelProfileList, type ModelProfile } from './profile.js';
 import type { AiUsage } from './usage.js';
 import type { OutputSchema } from './schema.js';
-import type { ProviderCategory } from './errors.js';
+import type { AiErrorReason, ProviderCategory } from './errors.js';
+import type { AiFinishReason } from './response.js';
 import type { CancellationToken } from './cancellation.js';
 
 /** The provider families AI Bridge may name. A family is a wire dialect, not a vendor. */
@@ -277,14 +278,52 @@ export type ProviderRequest = {
   /** Absolute epoch milliseconds. The adapter must abandon work past it. */
   readonly deadlineAtMs: number;
   readonly maxOutputTokens?: number;
+  /** In-process cancellation (Stage 3 additive). The adapter aborts outbound work on cancel. */
+  readonly cancellation?: CancellationToken;
 };
 
-/** A raw, mapped provider error. Core reads only `category`; `rawMessage` is operator-only. */
+/** A raw, mapped provider error. Core reads `category` (and the optional mapped `reason`);
+ * `rawMessage` is operator-only. */
 export type ProviderRawError = {
   readonly category: ProviderCategory;
+  /**
+   * The generic reason this failure maps to (Stage 3 additive). When absent, the runtime derives
+   * one from `category` via `reasonForProviderCategory`, so two adapters cannot disagree.
+   */
+  readonly reason?: AiErrorReason;
+  /** A provider-reported throttle/quota reset hint, mapped to milliseconds. Never prose. */
+  readonly retryAfterMs?: number;
   /** Operator-only diagnostic text, truncated and credential-stripped. Never crosses the boundary. */
   readonly rawMessage?: string;
 };
+
+/**
+ * Thrown by an adapter to report a mapped provider failure (Stage 3).
+ *
+ * The `Error.message` is deliberately fixed and sanitized: a thrown value may end up in a stack
+ * trace, and vendor prose is never a public contract (ARCHITECTURE.md §6.4). The mapped facts
+ * travel on `rawError`; the runtime normalizes them to an `AiError`.
+ */
+export class ProviderCallError extends Error {
+  readonly rawError: ProviderRawError;
+
+  constructor(rawError: ProviderRawError) {
+    super('provider call failed');
+    this.name = 'ProviderCallError';
+    this.rawError = rawError;
+  }
+}
+
+/** True for a `ProviderCallError`, including one from another realm or module instance. */
+export function isProviderCallError(value: unknown): value is ProviderCallError {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    'name' in value &&
+    (value as { name?: unknown }).name === 'ProviderCallError' &&
+    'rawError' in value
+  );
+}
 
 export type ProviderTextResult = {
   readonly text: string;
@@ -307,6 +346,46 @@ export type ProviderHealth = {
 };
 
 /**
+ * Trusted credentials bound to an adapter (Stage 3).
+ *
+ * The **only** channel a credential value may travel on. The value never appears in a
+ * `ProviderRequest`, a result, an error, a log line or a serialization — that absence is asserted
+ * by the secret-leakage regression tests (TESTING.md §2.1).
+ */
+export type TrustedCredentials = {
+  /** The operator-side handle the credential was resolved from. Safe to log. */
+  readonly handle: string;
+  /** The resolved secret. Never logged, never serialized, never returned to a consumer. */
+  readonly secret: string;
+};
+
+/**
+ * The mapped provider-side stream events (Stage 3).
+ *
+ * AI Bridge's own shape — never a vendor SSE frame. Exactly one terminal event (`FINISH` xor
+ * `ERROR`) closes a provider stream; a stream without one is a transport failure.
+ */
+export const PROVIDER_STREAM_EVENT_KINDS = ['TEXT_DELTA', 'FINISH', 'ERROR'] as const;
+
+export type ProviderStreamTextDelta = {
+  readonly kind: 'TEXT_DELTA';
+  readonly text: string;
+};
+
+export type ProviderStreamFinish = {
+  readonly kind: 'FINISH';
+  readonly usage: AiUsage;
+  readonly finishReason: AiFinishReason;
+};
+
+export type ProviderStreamError = {
+  readonly kind: 'ERROR';
+  readonly error: ProviderRawError;
+};
+
+export type ProviderStreamEvent = ProviderStreamTextDelta | ProviderStreamFinish | ProviderStreamError;
+
+/**
  * The provider abstraction. No vendor SDK type may appear in any signature.
  * Provider adapters are independent packages, not plugins (ARCHITECTURE.md §7.4).
  */
@@ -317,6 +396,10 @@ export interface AiProviderAdapter {
   readonly descriptor: ProviderDescriptor;
   generateText(request: ProviderRequest): Promise<ProviderTextResult>;
   generateStructured(request: ProviderRequest): Promise<ProviderStructuredResult>;
+  /** Optional. A port that cannot stream says so rather than pretending (Stage 3 additive). */
+  streamText?(request: ProviderRequest): AsyncIterable<ProviderStreamEvent>;
+  /** Trusted (Stage 3 additive). Bind a resolved credential. The value is never logged or returned. */
+  bindCredentials?(credentials: TrustedCredentials): void;
   /** A port that cannot probe says so rather than pretending. */
   probe?(signal: CancellationToken): Promise<ProviderHealth>;
   shutdown?(): Promise<void>;
