@@ -44,7 +44,14 @@ export type ScriptedStreamStep =
 export type ScriptedResultOptions = {
   readonly usage?: AiUsage;
   readonly finishReason?: AiFinishReason;
-  readonly rawError?: { category: ProviderCategory; reason?: AiErrorReason; retryAfterMs?: number; rawMessage?: string };
+  readonly rawError?: {
+    category: ProviderCategory;
+    reason?: AiErrorReason;
+    /** Stage 5: whether the request provably left this process. Absent = unknown outcome. */
+    dispatched?: boolean;
+    retryAfterMs?: number;
+    rawMessage?: string;
+  };
 };
 
 function scriptedRawError(options: ScriptedResultOptions): ProviderRawError | undefined {
@@ -54,6 +61,7 @@ function scriptedRawError(options: ScriptedResultOptions): ProviderRawError | un
   return {
     category: options.rawError.category,
     ...(options.rawError.reason === undefined ? {} : { reason: options.rawError.reason }),
+    ...(options.rawError.dispatched === undefined ? {} : { dispatched: options.rawError.dispatched }),
     ...(options.rawError.retryAfterMs === undefined ? {} : { retryAfterMs: options.rawError.retryAfterMs }),
     ...(options.rawError.rawMessage === undefined ? {} : { rawMessage: options.rawError.rawMessage }),
   };

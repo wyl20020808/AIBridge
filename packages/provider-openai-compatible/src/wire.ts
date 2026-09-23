@@ -191,7 +191,8 @@ async function sendWithPolicy(options: SendOptions & { readonly method: 'POST' |
       : { allowPrivateNetworkForDevelopment: options.allowPrivateNetworkForDevelopment }),
   });
   if (!initial.safe) {
-    throw new ProviderCallError({ category: 'BAD_REQUEST', reason: 'PROVIDER_REQUEST_REJECTED', rawMessage: `unsafe endpoint (${initial.rejection})` });
+    // `dispatched: false` — provably nothing left this process, so a repeat is free of double-billing risk.
+    throw new ProviderCallError({ category: 'BAD_REQUEST', reason: 'PROVIDER_REQUEST_REJECTED', dispatched: false, rawMessage: `unsafe endpoint (${initial.rejection})` });
   }
 
   const controller = new AbortController();
@@ -216,6 +217,8 @@ async function sendWithPolicy(options: SendOptions & { readonly method: 'POST' |
       try {
         response = await options.fetch(url, init);
       } catch {
+        // No `dispatched` marker: an aborted call or a transport failure is an **unknown** outcome
+        // — the provider may have generated and billed before the connection broke.
         throw new ProviderCallError(
           abortedByDeadline
             ? { category: 'UPSTREAM', reason: 'PROVIDER_TIMEOUT', rawMessage: 'the outbound call was abandoned at its deadline' }
@@ -225,7 +228,7 @@ async function sendWithPolicy(options: SendOptions & { readonly method: 'POST' |
       if (isRedirect(response.status)) {
         const location = response.headers.get('location');
         if (location === null || location.length === 0) {
-          throw new ProviderCallError({ category: 'UPSTREAM', reason: 'PROVIDER_BAD_RESPONSE', rawMessage: 'redirect without a Location header' });
+          throw new ProviderCallError({ category: 'UPSTREAM', reason: 'PROVIDER_BAD_RESPONSE', dispatched: true, rawMessage: 'redirect without a Location header' });
         }
         const target = resolveRedirect(url, location);
         const next = checkEndpointSafety(target, {
@@ -234,7 +237,7 @@ async function sendWithPolicy(options: SendOptions & { readonly method: 'POST' |
             : { allowPrivateNetworkForDevelopment: options.allowPrivateNetworkForDevelopment }),
         });
         if (!next.safe) {
-          throw new ProviderCallError({ category: 'BAD_REQUEST', reason: 'PROVIDER_REQUEST_REJECTED', rawMessage: `unsafe redirect target (${next.rejection})` });
+          throw new ProviderCallError({ category: 'BAD_REQUEST', reason: 'PROVIDER_REQUEST_REJECTED', dispatched: true, rawMessage: `unsafe redirect target (${next.rejection})` });
         }
         url = target;
         continue;
@@ -253,7 +256,7 @@ async function sendWithPolicy(options: SendOptions & { readonly method: 'POST' |
       }
       return response;
     }
-    throw new ProviderCallError({ category: 'UPSTREAM', reason: 'PROVIDER_BAD_RESPONSE', rawMessage: 'too many redirects' });
+    throw new ProviderCallError({ category: 'UPSTREAM', reason: 'PROVIDER_BAD_RESPONSE', dispatched: true, rawMessage: 'too many redirects' });
   } finally {
     clearTimeout(timer);
     unsubscribe();
@@ -268,7 +271,7 @@ function resolveRedirect(current: string, location: string): string {
   try {
     return new URL(location, current).href;
   } catch {
-    throw new ProviderCallError({ category: 'UPSTREAM', reason: 'PROVIDER_BAD_RESPONSE', rawMessage: 'unparseable redirect target' });
+    throw new ProviderCallError({ category: 'UPSTREAM', reason: 'PROVIDER_BAD_RESPONSE', dispatched: true, rawMessage: 'unparseable redirect target' });
   }
 }
 

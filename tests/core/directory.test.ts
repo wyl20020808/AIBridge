@@ -1,3 +1,4 @@
+import { AIBRIDGE_CONTRACT_VERSION } from '@aibridge/contracts';
 import { AiCapabilityDirectory, CapabilityRegistry, GENERIC_CAPABILITY_REGISTRATIONS, KillSwitchRegistry } from '@aibridge/core';
 import { describe, expect, it } from 'vitest';
 
@@ -34,7 +35,10 @@ describe('capability directory — "did the school turn AI off, or is AI broken?
     expect(status.global).toBe('DISABLED');
     expect(status.killSwitch.global).toBe(true);
     expect(status.capabilities).toHaveLength(2);
-    expect(status.contractVersion).toBe('1.0');
+    // The Stage 5 additive compatibility bump (usage `reasoningTokens`, `RETRY_USED`, quota and
+    // cost-budget reasons) raised the contract to `1.1`; major-compatible, so a `1.0` consumer is
+    // still accepted. See the compatibility note in INTEGRATION_CONTRACT_V1.md.
+    expect(status.contractVersion).toBe(AIBRIDGE_CONTRACT_VERSION);
   });
 
   it('returns null for an unknown capability and keeps the switch state visible', () => {

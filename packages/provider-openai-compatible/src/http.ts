@@ -50,7 +50,9 @@ export function classifyHttpFailure(input: {
 }): ProviderRawError {
   const vendorType = vendorErrorType(input.body);
   const rawMessage = typeof input.body.error?.message === 'string' ? input.body.error.message : undefined;
+  // A response arrived, so the outcome is **known** (not accepted) — safe to classify for retry.
   const base = {
+    dispatched: true,
     ...(rawMessage === undefined ? {} : { rawMessage }),
     ...(input.retryAfterMs === undefined ? {} : { retryAfterMs: input.retryAfterMs }),
   };
@@ -105,7 +107,7 @@ export function classifyHttpFailure(input: {
 
 /** A malformed success body. `INVALID_RESPONSE` semantics: upstream garbage, usually transient. */
 export function malformedResponseError(rawMessage: string): ProviderRawError {
-  return { category: 'UPSTREAM', reason: 'PROVIDER_BAD_RESPONSE', rawMessage };
+  return { category: 'UPSTREAM', reason: 'PROVIDER_BAD_RESPONSE', dispatched: true, rawMessage };
 }
 
 /**
@@ -125,7 +127,9 @@ function finiteOrUndefined(value: unknown): number | undefined {
 
 /**
  * Map vendor token counts to `AiUsage`. Every field stays optional: absent means *unknown*, never
- * zero (ARCHITECTURE.md §5.1).
+ * zero (ARCHITECTURE.md §5.1). `completion_tokens_details.reasoning_tokens` is projected as a
+ * **count** only (DeepSeek and other chat dialects report it); reasoning **content** never leaves
+ * `extractChatText`'s discard path.
  */
 export function mapUsage(value: unknown): AiUsage {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) {
@@ -136,6 +140,11 @@ export function mapUsage(value: unknown): AiUsage {
   const cached = typeof details === 'object' && details !== null && !Array.isArray(details)
     ? finiteOrUndefined((details as Record<string, unknown>)['cached_tokens'])
     : undefined;
+  const completionDetails = record['completion_tokens_details'];
+  const reasoning =
+    typeof completionDetails === 'object' && completionDetails !== null && !Array.isArray(completionDetails)
+      ? finiteOrUndefined((completionDetails as Record<string, unknown>)['reasoning_tokens'])
+      : undefined;
   const inputTokens = finiteOrUndefined(record['prompt_tokens']);
   const outputTokens = finiteOrUndefined(record['completion_tokens']);
   const totalTokens = finiteOrUndefined(record['total_tokens']);
@@ -144,6 +153,7 @@ export function mapUsage(value: unknown): AiUsage {
     ...(outputTokens === undefined ? {} : { outputTokens }),
     ...(totalTokens === undefined ? {} : { totalTokens }),
     ...(cached === undefined ? {} : { cachedTokens: cached }),
+    ...(reasoning === undefined ? {} : { reasoningTokens: reasoning }),
   };
 }
 

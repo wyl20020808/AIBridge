@@ -1,0 +1,43 @@
+{
+  "fixtureSetVersion": "1.0",
+  "binding": "ILLUSTRATIVE",
+  "kind": "response",
+  "expect": "accept",
+  "capability": "ai.text.generate",
+  "capabilityVersion": "1.0",
+  "case": "ok-additive-stage5-reasoning-tokens-and-retry-warning",
+  "document": {
+    "contractVersion": "1.0",
+    "requestId": "req-01J8Z0KQ7V00000000000014",
+    "capability": "ai.text.generate",
+    "capabilityVersion": "1.0",
+    "status": "SUCCEEDED",
+    "output": {
+      "text": "Start by listing what a hash map gives you: an average constant-time lookup. Then compare that with a sorted array.",
+      "finishReason": "STOP"
+    },
+    "usage": {
+      "inputTokens": 402,
+      "outputTokens": 31,
+      "totalTokens": 433,
+      "cachedTokens": 120,
+      "reasoningTokens": 18
+    },
+    "providerMetadata": {
+      "providerId": "relay",
+      "providerFamily": "openai-compatible",
+      "modelClass": "REASONING",
+      "routeDepth": 0,
+      "attemptCount": 2,
+      "repaired": false
+    },
+    "latencyMs": 1290,
+    "finishReason": "STOP",
+    "warnings": [
+      {
+        "code": "RETRY_USED",
+        "detail": "a bounded same-provider retry ran (retries: 1)"
+      }
+    ]
+  }
+}

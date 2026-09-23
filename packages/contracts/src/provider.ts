@@ -87,6 +87,12 @@ export type ProviderDescriptor = {
   readonly maxConcurrency: number;
   /** Almost always false: AI Bridge owns the idempotency registry (ARCHITECTURE.md §14.3). */
   readonly supportsIdempotency: boolean;
+  /**
+   * Additive, Stage 5: the adapter **and** the provider really deduplicate a repeated dispatch, so
+   * a request whose outcome is unknown may be safely repeated to the same provider. Declaring this
+   * without implementing it is a defect, not a feature (ARCHITECTURE.md §10.3).
+   */
+  readonly supportsReliableIdempotency?: boolean;
 };
 
 const MODEL_DESCRIPTOR_KEYS = [
@@ -100,7 +106,15 @@ const MODEL_DESCRIPTOR_KEYS = [
   'pricing',
 ] as const;
 
-const PROVIDER_DESCRIPTOR_KEYS = ['id', 'family', 'features', 'models', 'maxConcurrency', 'supportsIdempotency'] as const;
+const PROVIDER_DESCRIPTOR_KEYS = [
+  'id',
+  'family',
+  'features',
+  'models',
+  'maxConcurrency',
+  'supportsIdempotency',
+  'supportsReliableIdempotency',
+] as const;
 
 const PROVIDER_PRICING_KEYS = ['inputPerMTok', 'outputPerMTok', 'currency', 'asOf'] as const;
 
@@ -221,6 +235,10 @@ export function parseProviderDescriptor(value: unknown, path = '$'): ValidationR
   if (typeof value['supportsIdempotency'] !== 'boolean') {
     issues.push(createIssue('INVALID_TYPE', at(path, 'supportsIdempotency'), 'must be a boolean'));
   }
+  const supportsReliableIdempotency = value['supportsReliableIdempotency'];
+  if (supportsReliableIdempotency !== undefined && typeof supportsReliableIdempotency !== 'boolean') {
+    issues.push(createIssue('INVALID_TYPE', at(path, 'supportsReliableIdempotency'), 'must be a boolean'));
+  }
   const models: ModelDescriptor[] = [];
   if (!Array.isArray(value['models'])) {
     issues.push(createIssue('INVALID_TYPE', at(path, 'models'), 'must be an array of model descriptors'));
@@ -244,6 +262,7 @@ export function parseProviderDescriptor(value: unknown, path = '$'): ValidationR
     models,
     maxConcurrency: value['maxConcurrency'] as number,
     supportsIdempotency: value['supportsIdempotency'] as boolean,
+    ...(typeof supportsReliableIdempotency === 'boolean' ? { supportsReliableIdempotency } : {}),
   });
 }
 
@@ -291,6 +310,12 @@ export type ProviderRawError = {
    * one from `category` via `reasonForProviderCategory`, so two adapters cannot disagree.
    */
   readonly reason?: AiErrorReason;
+  /**
+   * Whether the request provably reached (`true`) or provably never left (`false`) this process
+   * (Stage 5 additive). Absent means **unknown** — an unknown outcome is never assumed safe to
+   * repeat. Drives the retry phases (ARCHITECTURE.md §10.3).
+   */
+  readonly dispatched?: boolean;
   /** A provider-reported throttle/quota reset hint, mapped to milliseconds. Never prose. */
   readonly retryAfterMs?: number;
   /** Operator-only diagnostic text, truncated and credential-stripped. Never crosses the boundary. */

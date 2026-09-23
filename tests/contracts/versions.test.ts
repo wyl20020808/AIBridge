@@ -8,7 +8,9 @@ import { describe, expect, it } from 'vitest';
 
 describe('version policy — reject unknown majors, never best-effort parse', () => {
   it('accepts the frozen major-compatible forms', () => {
-    expect(AIBRIDGE_CONTRACT_VERSION).toBe('1.0');
+    // `1.1` — the Stage 5 additive compatibility bump (usage `reasoningTokens`, the `RETRY_USED`
+    // warning and the quota/cost-budget reasons). Major-compatible: a `1.0` consumer is accepted.
+    expect(AIBRIDGE_CONTRACT_VERSION).toBe('1.1');
     expect(parseMajor('1')).toBe(1);
     expect(parseMajor('1.0')).toBe(1);
     expect(parseMajor('1.0.3')).toBe(1);

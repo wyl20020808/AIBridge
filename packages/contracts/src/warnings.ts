@@ -18,6 +18,8 @@ export const AI_WARNING_CODES = [
   'INPUT_REDACTED',
   'INPUT_TRUNCATED',
   'POLICY_NARROWED',
+  /** Additive, Stage 5 — see the compatibility note in INTEGRATION_CONTRACT_V1.md. */
+  'RETRY_USED',
 ] as const;
 
 export type AiWarningCode = (typeof AI_WARNING_CODES)[number];

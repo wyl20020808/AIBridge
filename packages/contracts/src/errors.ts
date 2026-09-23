@@ -60,6 +60,8 @@ export type AiErrorStage = (typeof AI_ERROR_STAGES)[number];
  *  - `PROVIDER_AUTH_FAILED`, `PROVIDER_REQUEST_REJECTED`, `PROVIDER_UNAVAILABLE` — Stage 3, so that
  *    every closed `ProviderCategory` maps to exactly one reason and a provider-side failure is
  *    never misreported as a consumer bug or as upstream garbage.
+ *  - `QUOTA_CAPABILITY`, `QUOTA_PROVIDER`, `COST_BUDGET_EXHAUSTED` — Stage 5, so every quota scope
+ *    has a reason of its own and a cost budget is never misreported as a time budget.
  *
  * Adding a reason or a detail key is a **minor** change.
  */
@@ -90,7 +92,10 @@ export const AI_ERROR_REASONS = [
   'RATE_LIMIT_PROVIDER',
   'QUOTA_SUBJECT',
   'QUOTA_CALLER',
+  'QUOTA_CAPABILITY',
+  'QUOTA_PROVIDER',
   'QUOTA_GLOBAL',
+  'COST_BUDGET_EXHAUSTED',
   // ROUTING
   'NO_ROUTE',
   'MODEL_UNAVAILABLE',
@@ -163,7 +168,12 @@ export const REASON_META: Readonly<Record<AiErrorReason, ReasonMeta>> = {
   RATE_LIMIT_PROVIDER: { code: 'RATE_LIMITED', stage: 'GOVERNANCE', retryable: true },
   QUOTA_SUBJECT: { code: 'QUOTA_EXCEEDED', stage: 'GOVERNANCE', retryable: false },
   QUOTA_CALLER: { code: 'QUOTA_EXCEEDED', stage: 'GOVERNANCE', retryable: false },
+  QUOTA_CAPABILITY: { code: 'QUOTA_EXCEEDED', stage: 'GOVERNANCE', retryable: false },
+  QUOTA_PROVIDER: { code: 'QUOTA_EXCEEDED', stage: 'GOVERNANCE', retryable: false },
   QUOTA_GLOBAL: { code: 'QUOTA_EXCEEDED', stage: 'GOVERNANCE', retryable: false },
+  // A **cost** budget is not a time budget: `BUDGET_EXHAUSTED` (TIMEOUT/DEADLINE) would mislabel
+  // "no money left" as "no time left" (Stage 5, additive).
+  COST_BUDGET_EXHAUSTED: { code: 'QUOTA_EXCEEDED', stage: 'GOVERNANCE', retryable: false },
 
   NO_ROUTE: { code: 'UNAVAILABLE', stage: 'ROUTING', retryable: true },
   MODEL_UNAVAILABLE: { code: 'MODEL_UNAVAILABLE', stage: 'ROUTING', retryable: false },
@@ -328,7 +338,10 @@ export const DETAIL_KEYS_BY_REASON: Readonly<Partial<Record<AiErrorReason, reado
   RATE_LIMIT_PROVIDER: ['dimension', 'limit', 'windowMs'],
   QUOTA_SUBJECT: ['dimension', 'period', 'limit'],
   QUOTA_CALLER: ['dimension', 'period', 'limit'],
+  QUOTA_CAPABILITY: ['dimension', 'period', 'limit'],
+  QUOTA_PROVIDER: ['dimension', 'period', 'limit'],
   QUOTA_GLOBAL: ['dimension', 'period', 'limit'],
+  COST_BUDGET_EXHAUSTED: ['dimension', 'period', 'limit'],
 
   NO_ROUTE: ['profile'],
   MODEL_UNAVAILABLE: ['profile'],

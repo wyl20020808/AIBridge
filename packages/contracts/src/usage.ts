@@ -15,7 +15,13 @@ export const COST_BASES = ['PROVIDER_REPORTED', 'PRICE_TABLE', 'ESTIMATED'] as c
 
 export type CostBasis = (typeof COST_BASES)[number];
 
-export const USAGE_TOKEN_KEYS = ['inputTokens', 'outputTokens', 'totalTokens', 'cachedTokens'] as const;
+/**
+ * `reasoningTokens` is additive, Stage 5 — see the compatibility note in
+ * INTEGRATION_CONTRACT_V1.md. Absent means *unknown*, never zero: it is projected only when a
+ * provider safely reports a reasoning token count. Reasoning **content** never crosses the
+ * boundary; only the count does.
+ */
+export const USAGE_TOKEN_KEYS = ['inputTokens', 'outputTokens', 'totalTokens', 'cachedTokens', 'reasoningTokens'] as const;
 
 export type UsageTokenKey = (typeof USAGE_TOKEN_KEYS)[number];
 
@@ -33,6 +39,8 @@ export type AiUsage = {
   readonly outputTokens?: number;
   readonly totalTokens?: number;
   readonly cachedTokens?: number;
+  /** Additive, Stage 5. A count only — reasoning **content** is never projected. */
+  readonly reasoningTokens?: number;
   readonly estimatedCost?: EstimatedCost;
 };
 
@@ -52,6 +60,7 @@ export function isEmptyUsage(usage: AiUsage): boolean {
     usage.outputTokens === undefined &&
     usage.totalTokens === undefined &&
     usage.cachedTokens === undefined &&
+    usage.reasoningTokens === undefined &&
     usage.estimatedCost === undefined
   );
 }
@@ -115,6 +124,7 @@ export function parseAiUsage(value: unknown, path = '$'): ValidationResult<AiUsa
     ...(typeof value['outputTokens'] === 'number' ? { outputTokens: value['outputTokens'] } : {}),
     ...(typeof value['totalTokens'] === 'number' ? { totalTokens: value['totalTokens'] } : {}),
     ...(typeof value['cachedTokens'] === 'number' ? { cachedTokens: value['cachedTokens'] } : {}),
+    ...(typeof value['reasoningTokens'] === 'number' ? { reasoningTokens: value['reasoningTokens'] } : {}),
     ...(estimatedCost === undefined ? {} : { estimatedCost }),
   });
 }

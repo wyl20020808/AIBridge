@@ -112,9 +112,11 @@ export async function sendRequest(options: SendOptions): Promise<FetchResponseLi
       : { allowPrivateNetworkForDevelopment: options.allowPrivateNetworkForDevelopment }),
   });
   if (!safety.safe) {
+    // `dispatched: false` — provably nothing left this process.
     throw new ProviderCallError({
       category: 'BAD_REQUEST',
       reason: 'PROVIDER_REQUEST_REJECTED',
+      dispatched: false,
       rawMessage: `unsafe endpoint (${safety.rejection})`,
     });
   }
@@ -141,6 +143,7 @@ export async function sendRequest(options: SendOptions): Promise<FetchResponseLi
       try {
         response = await options.fetch(url, init);
       } catch {
+        // No `dispatched` marker: an unknown outcome is never assumed safe to repeat.
         throw new ProviderCallError(
           abortedByDeadline
             ? { category: 'UPSTREAM', reason: 'PROVIDER_TIMEOUT', rawMessage: 'the outbound call was abandoned at its deadline' }
@@ -150,13 +153,13 @@ export async function sendRequest(options: SendOptions): Promise<FetchResponseLi
       if (response.status >= 300 && response.status < 400) {
         const location = response.headers.get('location');
         if (location === null || location.length === 0) {
-          throw new ProviderCallError({ category: 'UPSTREAM', reason: 'PROVIDER_BAD_RESPONSE', rawMessage: 'redirect without a Location header' });
+          throw new ProviderCallError({ category: 'UPSTREAM', reason: 'PROVIDER_BAD_RESPONSE', dispatched: true, rawMessage: 'redirect without a Location header' });
         }
         let target: string;
         try {
           target = new URL(location, url).href;
         } catch {
-          throw new ProviderCallError({ category: 'UPSTREAM', reason: 'PROVIDER_BAD_RESPONSE', rawMessage: 'unparseable redirect target' });
+          throw new ProviderCallError({ category: 'UPSTREAM', reason: 'PROVIDER_BAD_RESPONSE', dispatched: true, rawMessage: 'unparseable redirect target' });
         }
         const next = checkEndpointSafety(target, {
           ...(options.allowPrivateNetworkForDevelopment === undefined
@@ -167,6 +170,7 @@ export async function sendRequest(options: SendOptions): Promise<FetchResponseLi
           throw new ProviderCallError({
             category: 'BAD_REQUEST',
             reason: 'PROVIDER_REQUEST_REJECTED',
+            dispatched: true,
             rawMessage: `unsafe redirect target (${next.rejection})`,
           });
         }
@@ -187,7 +191,7 @@ export async function sendRequest(options: SendOptions): Promise<FetchResponseLi
       }
       return response;
     }
-    throw new ProviderCallError({ category: 'UPSTREAM', reason: 'PROVIDER_BAD_RESPONSE', rawMessage: 'too many redirects' });
+    throw new ProviderCallError({ category: 'UPSTREAM', reason: 'PROVIDER_BAD_RESPONSE', dispatched: true, rawMessage: 'too many redirects' });
   } finally {
     clearTimeout(timer);
     unsubscribe();
@@ -218,7 +222,7 @@ export function parseOpenAiJson(text: string): Record<string, unknown> | null {
 }
 
 export function malformedResponseError(rawMessage: string): ProviderRawError {
-  return { category: 'UPSTREAM', reason: 'PROVIDER_BAD_RESPONSE', rawMessage };
+  return { category: 'UPSTREAM', reason: 'PROVIDER_BAD_RESPONSE', dispatched: true, rawMessage };
 }
 
 export function classifyOpenAiFailure(input: {
@@ -230,7 +234,9 @@ export function classifyOpenAiFailure(input: {
   const code = typeof input.body.error?.code === 'string' ? input.body.error.code : '';
   const message = typeof input.body.error?.message === 'string' ? input.body.error.message : undefined;
   const shape = `${type} ${code}`.toLowerCase();
+  // A response arrived: the outcome is **known** (not accepted).
   const base = {
+    dispatched: true,
     ...(message === undefined ? {} : { rawMessage: message }),
     ...(input.retryAfterMs === undefined ? {} : { retryAfterMs: input.retryAfterMs }),
   };
@@ -322,6 +328,11 @@ export function mapResponsesUsage(value: unknown): AiUsage {
     typeof details === 'object' && details !== null && !Array.isArray(details)
       ? finiteOrUndefined((details as Record<string, unknown>)['cached_tokens'])
       : undefined;
+  const outputDetails = record['output_tokens_details'];
+  const reasoning =
+    typeof outputDetails === 'object' && outputDetails !== null && !Array.isArray(outputDetails)
+      ? finiteOrUndefined((outputDetails as Record<string, unknown>)['reasoning_tokens'])
+      : undefined;
   const inputTokens = finiteOrUndefined(record['input_tokens']);
   const outputTokens = finiteOrUndefined(record['output_tokens']);
   const totalTokens = finiteOrUndefined(record['total_tokens']);
@@ -330,6 +341,7 @@ export function mapResponsesUsage(value: unknown): AiUsage {
     ...(outputTokens === undefined ? {} : { outputTokens }),
     ...(totalTokens === undefined ? {} : { totalTokens }),
     ...(cached === undefined ? {} : { cachedTokens: cached }),
+    ...(reasoning === undefined ? {} : { reasoningTokens: reasoning }),
   };
 }
 
