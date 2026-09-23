@@ -1,0 +1,26 @@
+{
+  "name": "@aibridge/provider-openai-compatible",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "The AI Bridge reference provider adapter for OpenAI-compatible chat-completions endpoints. All provider-specific wire shape (HTTP payload, headers, base URL, authentication, response shape, error body) stays inside this package. Depends only on @aibridge/contracts.",
+  "license": "UNLICENSED",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "sideEffects": false,
+  "scripts": {
+    "build": "tsc -b"
+  },
+  "dependencies": {
+    "@aibridge/contracts": "0.1.0"
+  }
+}
