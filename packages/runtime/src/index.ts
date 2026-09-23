@@ -53,3 +53,48 @@ export {
   unmetRequirements,
   type RouteResolution,
 } from './routes.js';
+
+export {
+  CREDENTIAL_REF_PATTERN,
+  CONFIG_AUTH_SCHEMES,
+  CONFIG_WIRE_PROTOCOLS,
+  CONFIG_XIAOMI_CLUSTERS,
+  FEATURE_ASSURANCE,
+  MODEL_ALIAS_PATTERN,
+  PROVIDER_ID_PATTERN,
+  PROVIDER_PRESETS,
+  featureStatus,
+  parseProviderSuiteConfig,
+  resolveModelAlias,
+  semanticIssues,
+  type ConfigAuthScheme,
+  type ConfigWireProtocol,
+  type ConfigXiaomiCluster,
+  type FeatureAssurance,
+  type ModelAliasConfig,
+  type ProviderConfig,
+  type ProviderEndpointConfig,
+  type ProviderPreset,
+  type ProviderSuiteConfig,
+  type RouteConfig,
+} from './config.js';
+
+export {
+  buildRuntimeRoutes,
+  defaultAuthSchemeForPreset,
+  materializeProviderSuite,
+  protocolForPreset,
+  type AdapterFactory,
+  type AdapterFactorySpec,
+  type AdapterFactories,
+  type MaterializeOptions,
+  type MaterializedProvider,
+  type ModelDiagnostic,
+  type ProviderDiagnostic,
+  type ProviderSuiteRuntime,
+} from './suite.js';
+
+export {
+  nextFallback,
+  type FallbackVerdict,
+} from './fallback.js';

@@ -5,7 +5,7 @@
  * with reasoning isolation, JSON Output semantics (valid JSON ≠ schema adherence), empty and
  * malformed structured content, 429 and overload — all mapped into the Stage 3 generic vocabulary.
  */
-import { DEFAULT_DEEPSEEK_THINKING, DeepSeekAdapter, type DeepSeekConfig, type FetchLike, type FetchRequestInitLike, type FetchResponseLike } from '@aibridge/provider-deepseek';
+import { DEFAULT_DEEPSEEK_THINKING, DeepSeekAdapter, type DeepSeekConfig, type FetchLike, type FetchRequestInitLike } from '@aibridge/provider-deepseek';
 import type { ProviderRequest, ProviderStreamEvent } from '@aibridge/contracts';
 import { describe, expect, it } from 'vitest';
 

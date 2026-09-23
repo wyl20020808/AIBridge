@@ -21,3 +21,11 @@ export {
   type XiaomiTokenPlanConfig,
   type XiaomiTokenPlanModelConfig,
 } from './xiaomi.js';
+
+/** The transport seam (re-exported from the internal wire layer): self-declared, no vendor types. */
+export type {
+  FetchLike,
+  FetchRequestInitLike,
+  FetchResponseLike,
+  ThinkingMapping,
+} from '@aibridge/provider-openai-compatible';

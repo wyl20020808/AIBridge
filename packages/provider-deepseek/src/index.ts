@@ -14,3 +14,11 @@ export {
   type DeepSeekConfig,
   type DeepSeekModelConfig,
 } from './deepseek.js';
+
+/** The transport seam (re-exported from the internal wire layer): self-declared, no vendor types. */
+export type {
+  FetchLike,
+  FetchRequestInitLike,
+  FetchResponseLike,
+  ThinkingMapping,
+} from '@aibridge/provider-openai-compatible';
