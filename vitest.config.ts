@@ -1,0 +1,23 @@
+import { fileURLToPath } from 'node:url';
+import { defineConfig } from 'vitest/config';
+
+const resolvePackage = (path: string): string => fileURLToPath(new URL(path, import.meta.url));
+
+/**
+ * Tests resolve `@aibridge/*` to source, so `vitest run` needs no build step. The published
+ * packages resolve through their built `dist/`; the aliases exist only for the test process.
+ */
+export default defineConfig({
+  resolve: {
+    alias: {
+      '@aibridge/contracts': resolvePackage('./packages/contracts/src/index.ts'),
+      '@aibridge/core': resolvePackage('./packages/core/src/index.ts'),
+      '@aibridge/host-sdk': resolvePackage('./packages/host-sdk/src/index.ts'),
+    },
+  },
+  test: {
+    include: ['tests/**/*.test.ts', 'packages/**/*.test.ts'],
+    environment: 'node',
+    passWithNoTests: false,
+  },
+});

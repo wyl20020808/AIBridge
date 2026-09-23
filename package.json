@@ -1,0 +1,33 @@
+{
+  "name": "aibridge",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "AI Bridge — a general-purpose AI capability provider plugin. Stage 2: generic AI contracts.",
+  "license": "UNLICENSED",
+  "engines": {
+    "node": ">=22.0.0 <23.0.0",
+    "npm": ">=10.0.0 <11.0.0"
+  },
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "clean": "node scripts/clean.mjs",
+    "typecheck": "tsc -b --pretty false && tsc -p tsconfig.test.json --noEmit --pretty false",
+    "build": "tsc -b --pretty false",
+    "test": "vitest run",
+    "gates": "npm run check:coupling && npm run check:secrets && npm run check:deps",
+    "check:coupling": "node scripts/check-adapter-coupling.mjs",
+    "check:secrets": "node scripts/check-no-secret-leak.mjs",
+    "check:deps": "node scripts/check-runtime-deps.mjs",
+    "check:fixtures": "vitest run tests/fixtures",
+    "check:portability": "node scripts/check-portability.mjs",
+    "verify": "npm run typecheck && npm run gates && npm run test && npm run build && npm run check:portability"
+  },
+  "devDependencies": {
+    "@types/node": "22.20.4",
+    "typescript": "5.9.3",
+    "vitest": "3.2.7"
+  }
+}

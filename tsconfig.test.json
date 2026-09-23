@@ -1,0 +1,19 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "composite": false,
+    "incremental": false,
+    "declaration": false,
+    "declarationMap": false,
+    "sourceMap": false,
+    "noEmit": true,
+    "types": ["node"],
+    "baseUrl": ".",
+    "paths": {
+      "@aibridge/contracts": ["packages/contracts/src/index.ts"],
+      "@aibridge/core": ["packages/core/src/index.ts"],
+      "@aibridge/host-sdk": ["packages/host-sdk/src/index.ts"]
+    }
+  },
+  "include": ["packages/*/src/**/*.ts", "tests/**/*.ts", "vitest.config.ts"]
+}
