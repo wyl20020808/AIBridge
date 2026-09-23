@@ -243,6 +243,9 @@ export function classifyOpenAiFailure(input: {
   if (shape.includes('rate_limit') || shape.includes('over_rate')) {
     return { category: 'RATE_LIMIT', reason: 'PROVIDER_THROTTLED', ...base };
   }
+  if (shape.includes('overloaded')) {
+    return { category: 'OVERLOADED', reason: 'PROVIDER_OVERLOADED', ...base };
+  }
   if (shape.includes('content_filter')) {
     return { category: 'CONTENT_FILTER', reason: 'PROVIDER_CONTENT_FILTER', ...base };
   }
