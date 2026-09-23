@@ -223,6 +223,9 @@ export function estimateCost(
   const cachedPrice = snapshot.cachedInputPrice ?? inputPrice;
   const reasoningPrice = snapshot.reasoningTokenPrice ?? outputPrice;
 
+  // Split counts the provider did not report are treated as zero — for cached tokens that is the
+  // conservative (un-discounted) direction. A rate card should set `reasoningTokenPrice` only for
+  // providers that report `reasoningTokens` (USAGE_AND_COST.md §cost basis).
   const cachedTokens = usage.cachedTokens ?? 0;
   const uncachedInput = Math.max(0, (usage.inputTokens ?? 0) - cachedTokens);
   const reasoningTokens = snapshot.reasoningTokenPrice === undefined ? 0 : usage.reasoningTokens ?? 0;
@@ -235,7 +238,8 @@ export function estimateCost(
       reasoningTokens * reasoningPrice) /
     divisor;
 
-  const partial = !hasInput || !hasOutput || (usage.cachedTokens === undefined && snapshot.cachedInputPrice !== undefined);
+  // Partial means "one of the two main counts never arrived" — no invented precision (Phase 33).
+  const partial = !hasInput || !hasOutput;
   return {
     amount,
     currency: snapshot.currency,

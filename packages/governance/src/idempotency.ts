@@ -40,6 +40,25 @@ export function idempotencyIdentityKey(identity: IdempotencyIdentity): string {
     .join('|');
 }
 
+/**
+ * The stored fingerprint: a stable hash of the request digest, **never** the digest itself.
+ *
+ * A digest is derived from the request body — it embeds the prompt and learner text (Phase 19).
+ * The registry therefore hashes whatever it is given before storing, so no caller can accidentally
+ * turn the replay cache into a prompt archive.
+ */
+export function hashRequestFingerprint(digest: string): string {
+  let a = 0x811c9dc5;
+  let b = 0x01000193;
+  for (let index = 0; index < digest.length; index += 1) {
+    a ^= digest.charCodeAt(index) & 0xff;
+    a = Math.imul(a, 0x01000193) >>> 0;
+    b ^= digest.charCodeAt(index) >>> 8;
+    b = Math.imul(b, 0x01000193) >>> 0;
+  }
+  return `fp-${a.toString(16).padStart(8, '0')}${b.toString(16).padStart(8, '0')}`;
+}
+
 export type IdempotencyRecord = {
   readonly identity: string;
   /** The request fingerprint (`consumerRequestDigest`). Mismatch ⇒ `IDEMPOTENCY_CONFLICT`. */
@@ -206,10 +225,11 @@ export class IdempotencyRegistry {
   /** The gate every logical call passes, before governance and before any dispatch (Phase 51). */
   async gate(identity: IdempotencyIdentity, fingerprint: string, logicalRequestId: string): Promise<IdempotencyGate> {
     const key = idempotencyIdentityKey(identity);
+    const hashedFingerprint = hashRequestFingerprint(fingerprint);
     const nowMs = this.#clock.nowMs();
     const claim = await this.#store.claim({
       identity: key,
-      fingerprint,
+      fingerprint: hashedFingerprint,
       status: 'IN_FLIGHT',
       createdAtMs: nowMs,
       expiresAtMs: nowMs + IDEMPOTENCY_RETENTION_MS,

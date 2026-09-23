@@ -20,7 +20,32 @@ import {
   runHostConformance,
   runProviderConformance,
 } from '@aibridge/host-sdk';
-import { AiRuntime, normalizeProviderError, parseProviderSuiteConfig, materializeProviderSuite, type RuntimeRoutes } from '@aibridge/runtime';
+import {
+  AiRuntime,
+  ConfigManager,
+  normalizeProviderError,
+  parseProviderSuiteConfig,
+  materializeProviderSuite,
+  type RuntimeRoutes,
+} from '@aibridge/runtime';
+import {
+  CircuitBreakerRegistry,
+  IdempotencyRegistry,
+  InMemoryIdempotencyStore,
+  InMemoryMetrics,
+  InMemoryQuotaStore,
+  InMemoryRateLimitStore,
+  InMemoryUsageLedger,
+  PricingTable,
+  QuotaManager,
+  RateLimiter,
+  RuntimeHealthRegistry,
+  estimateCost,
+  type PricingRecord,
+  type QuotaPolicy,
+  type RateLimitPolicy,
+  type ReliabilityProvenance,
+} from '@aibridge/governance';
 import {
   OpenAiCompatibleAdapter,
   type FetchLike,
@@ -118,6 +143,50 @@ export async function portabilityCheck(): Promise<boolean> {
   });
   void materializeProviderSuite;
 
+  // The Stage 5 surface: reliability and governance primitives, all portable and clock-driven.
+  const governanceClock = { nowMs: () => 0 };
+  const pricing: PricingRecord = {
+    pricingId: 'price-portability-1',
+    version: '1',
+    providerId: 'relay',
+    currency: 'USD',
+    inputTokenPrice: 1,
+    outputTokenPrice: 2,
+    unit: 'PER_1K_TOKENS',
+    validFromMs: 0,
+    source: 'portability rate card',
+  };
+  const pricingTable = new PricingTable([pricing]);
+  const cost = estimateCost({ inputTokens: 10, outputTokens: 5 }, pricingTable.snapshotFor('relay', {}, 0));
+  const quotas = new QuotaManager({
+    store: new InMemoryQuotaStore(),
+    clock: governanceClock,
+    policies: [{ scope: 'global', meter: 'TOKENS', period: 'DAY', limit: 1_000 } satisfies QuotaPolicy],
+  });
+  const limiter = new RateLimiter({
+    store: new InMemoryRateLimitStore(),
+    clock: governanceClock,
+    policies: [{ dimension: 'global', limit: 5, windowMs: 1_000 } satisfies RateLimitPolicy],
+  });
+  const idempotency = new IdempotencyRegistry({ store: new InMemoryIdempotencyStore({ clock: governanceClock }), clock: governanceClock });
+  const breakers = new CircuitBreakerRegistry({ clock: governanceClock });
+  const health = new RuntimeHealthRegistry({ clock: governanceClock, breakers });
+  void new InMemoryUsageLedger();
+  void new InMemoryMetrics();
+  const provenanceShape: ReliabilityProvenance | null = null;
+  void provenanceShape;
+  const configManager = ConfigManager.bootstrap(
+    {
+      providers: suiteConfig.ok ? suiteConfig.value.providers : [],
+      routes: [{ profile: 'balanced', chain: ['relay.text.primary'] }],
+    },
+    { clock: governanceClock },
+  );
+  void idempotency;
+  void limiter;
+  void quotas;
+  void health;
+
   return (
     parsed.ok &&
     envelope.ok &&
@@ -130,6 +199,9 @@ export async function portabilityCheck(): Promise<boolean> {
     suiteConfig.ok &&
     openai.adapterApiVersion === 1 &&
     deepseek.family === 'openai-compatible' &&
-    xiaomi.credentialShape === null
+    xiaomi.credentialShape === null &&
+    cost.basis === 'ESTIMATED_FROM_PRICING' &&
+    breakers.for('relay', 'relay.text.primary').state === 'CLOSED' &&
+    configManager.ok
   );
 }

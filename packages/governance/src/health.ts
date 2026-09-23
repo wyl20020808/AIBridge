@@ -83,6 +83,8 @@ export class RuntimeHealthRegistry {
   recordSuccess(providerId: string, modelAlias: string): void {
     const entry = this.#entry(providerId, modelAlias);
     entry.lastSuccessAtMs = this.#clock.nowMs();
+    // A success ends the degraded episode: health must recover (Phase 15), never latch.
+    entry.failures = [];
   }
 
   recordFailure(providerId: string, modelAlias: string, error: AiError): void {

@@ -57,6 +57,8 @@ export type QuotaReservationEntry = {
   readonly policy: QuotaPolicy;
   readonly bucket: string;
   readonly amount: number;
+  /** The store's reservation id — settlement must hit the same line the reservation opened. */
+  readonly storeId: string;
 };
 
 export type QuotaReservation = {
@@ -254,7 +256,7 @@ export class QuotaManager {
         };
       }
       taken.push({ bucket, id });
-      entries.push({ policy, bucket, amount });
+      entries.push({ policy, bucket, amount, storeId: id });
     }
     return { ok: true, reservation: { id: `res-${nowMs}-${taken.length}`, entries } };
   }
@@ -268,14 +270,14 @@ export class QuotaManager {
   async settle(reservation: QuotaReservation, settlement: QuotaSettlement): Promise<void> {
     for (const entry of reservation.entries) {
       const actual = this.#settlementAmount(entry, settlement);
-      await this.#store.settle(entry.bucket, reservation.id, actual);
+      await this.#store.settle(entry.bucket, entry.storeId, actual);
     }
   }
 
   /** Release every reservation without consuming anything (cancelled or rejected before dispatch). */
   async release(reservation: QuotaReservation): Promise<void> {
     for (const entry of reservation.entries) {
-      await this.#store.release(entry.bucket, reservation.id);
+      await this.#store.release(entry.bucket, entry.storeId);
     }
   }
 

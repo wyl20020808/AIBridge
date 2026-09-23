@@ -474,9 +474,13 @@ export class AiRuntime {
    * every provider attempt live here and in the usage ledger.
    */
   async executeObserved(request: unknown, trustedContext: unknown, options: ExecuteOptions = {}): Promise<ExecutionOutcome> {
+    // Bind the configuration snapshot at **ingress**, before any await: a reload that lands while
+    // this call is being scheduled can never change the generation a request runs against
+    // (Phase 42 — one request, one snapshot).
+    const boundSnapshot = this.configSnapshot;
     await Promise.all(this.#pendingRegistrations);
     const startedAtMs = this.#clock.nowMs();
-    const prepared = this.#prepare(request, trustedContext, 'GENERATE', options);
+    const prepared = this.#prepare(request, trustedContext, 'GENERATE', options, boundSnapshot);
     if (!prepared.ok) {
       this.#log.write({
         level: 'warn',
@@ -486,7 +490,7 @@ export class AiRuntime {
         capability: prepared.identity.capability,
         detail: `${prepared.error.reason ?? prepared.error.code} ${prepared.error.stage}`,
       });
-      return this.#rejectedOutcome(prepared, startedAtMs);
+      return this.#rejectedOutcome(prepared, startedAtMs, boundSnapshot);
     }
     return this.#coordinator.execute(this.#executionPlan(prepared.plan), options);
   }
@@ -505,6 +509,7 @@ export class AiRuntime {
    * reliability chains uses `execute`.
    */
   async *stream(request: unknown, trustedContext: unknown, options: ExecuteOptions = {}): AsyncIterable<AiStreamEvent> {
+    const boundSnapshot = this.configSnapshot;
     await Promise.all(this.#pendingRegistrations);
     const startedAtMs = this.#clock.nowMs();
     const identity = echoIdentity(request);
@@ -515,7 +520,7 @@ export class AiRuntime {
       capabilityVersion: identity.capabilityVersion,
     });
 
-    const prepared = this.#prepare(request, trustedContext, 'STREAM', options);
+    const prepared = this.#prepare(request, trustedContext, 'STREAM', options, boundSnapshot);
     if (!prepared.ok) {
       yield makeStreamFailed({
         error: prepared.error,
@@ -697,8 +702,8 @@ export class AiRuntime {
   #rejectedOutcome(
     prepared: Extract<Prepared, { readonly ok: false }>,
     startedAtMs: number,
+    snapshot: RuntimeConfigSnapshot,
   ): Promise<ExecutionOutcome> {
-    const snapshot = this.configSnapshot;
     const finishedAtMs = this.#clock.nowMs();
     const result: AiResult<never> = {
       contractVersion: prepared.identity.contractVersion,
@@ -780,7 +785,13 @@ export class AiRuntime {
   }
 
   /** Contract validation → capability validation → provider resolution. No provider is contacted. */
-  #prepare(request: unknown, trustedContext: unknown, delivery: RequirementDelivery, options: ExecuteOptions): Prepared {
+  #prepare(
+    request: unknown,
+    trustedContext: unknown,
+    delivery: RequirementDelivery,
+    options: ExecuteOptions,
+    snapshot: RuntimeConfigSnapshot,
+  ): Prepared {
     const identity = echoIdentity(request);
     const fail = (error: AiError, warnings: readonly AiWarning[] = []): Prepared => ({
       ok: false,
@@ -1021,7 +1032,6 @@ export class AiRuntime {
 
     // Requirement + provider resolution. Local failures only — no provider is contacted yet.
     const requirements: CapabilityRequirements = call.requirements ?? {};
-    const snapshot = this.configSnapshot;
     const scan = enumerateRouteCandidates({
       routes: snapshot.routes,
       providers: this.#providers,

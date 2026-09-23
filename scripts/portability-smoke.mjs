@@ -21,6 +21,15 @@ import {
   runHostConformance,
   runProviderConformance,
 } from '@aibridge/host-sdk';
+import {
+  IdempotencyRegistry,
+  InMemoryIdempotencyStore,
+  InMemoryMetrics,
+  InMemoryQuotaStore,
+  InMemoryUsageLedger,
+  QuotaManager,
+  RecordingOperationalEvents,
+} from '@aibridge/governance';
 import { AiRuntime, materializeProviderSuite, parseProviderSuiteConfig } from '@aibridge/runtime';
 import { OpenAiCompatibleAdapter } from '@aibridge/provider-openai-compatible';
 import { DeepSeekAdapter } from '@aibridge/provider-deepseek';
@@ -274,7 +283,104 @@ async function main() {
   // And the result envelope itself parses.
   assert.equal(parseAiResult(result).ok, true, 'the normalized result parses against the contract');
 
-  process.stdout.write('check-portability: smoke OK (12 assertions over the packed runtime surface)\n');
+  // 13. One Stage 5 governance round trip through the packed runtime: fallback execution,
+  //     provenance, the usage ledger and idempotent replay — all offline and deterministic.
+  const governanceClock = { nowMs: () => 0 };
+  const ledger = new InMemoryUsageLedger();
+  const metrics = new InMemoryMetrics();
+  const govEvents = new RecordingOperationalEvents();
+  const idempotencyStore = new InMemoryIdempotencyStore({ clock: governanceClock });
+  const quotas = new QuotaManager({
+    store: new InMemoryQuotaStore(),
+    clock: governanceClock,
+    policies: [{ scope: 'global', meter: 'REQUESTS', period: 'DAY', limit: 10 }],
+  });
+  let failing = true;
+  const fallbackAdapter = (id) =>
+    new ScriptedProviderAdapter({ id, textSteps: [], structuredSteps: [] });
+  const first = fallbackAdapter('first');
+  const second = fallbackAdapter('second');
+  first.pushStructured({
+    kind: 'result',
+    result: {
+      text: '',
+      usage: {},
+      finishReason: 'UNKNOWN',
+      rawError: { category: 'UPSTREAM', reason: 'PROVIDER_UNAVAILABLE', dispatched: true },
+    },
+  });
+  second.pushStructured(structuredStepJson('{"summary":"fallback served it"}'));
+  void failing;
+
+  const governanceRuntime = new AiRuntime({
+    providers: [{ adapter: first }, { adapter: second }],
+    routes: {
+      balanced: [
+        { providerId: 'first', modelRef: 'first-model', modelAlias: 'first.text.primary' },
+        { providerId: 'second', modelRef: 'second-model', modelAlias: 'second.text.primary' },
+      ],
+    },
+    clock: governanceClock,
+    governanceConfig: { outputRepair: 'NONE', quotas: [], fallback: {} },
+    services: {
+      ledger,
+      metrics,
+      events: govEvents,
+      quotas,
+      idempotency: new IdempotencyRegistry({ store: idempotencyStore, clock: governanceClock }),
+    },
+  });
+
+  const observed = await governanceRuntime.executeObserved(
+    {
+      ...consumerRequest(),
+      requestId: 'req-portability-gov-1',
+      idempotencyKey: 'portability.gov.turn-1',
+      outputSchema: {
+        kind: 'INLINE',
+        schemaId: 'portability.summary',
+        version: '1.0',
+        dialect: 'aibridge.fields/v1',
+        fields: [{ name: 'summary', type: 'STRING', required: true, description: 'One-line summary.' }],
+      },
+    },
+    trustedContext(),
+  );
+  assert.equal(observed.result.status, 'SUCCEEDED', `fallback should serve: ${JSON.stringify(observed.result.error)}`);
+  assert.equal(observed.result.output.summary, 'fallback served it');
+  assert.equal(observed.provenance.attempts.length, 2, 'two provider attempts are recorded');
+  assert.equal(observed.governance.attemptCount, 2, 'the governance summary counts every attempt');
+  assert.ok(observed.result.warnings.some((warning) => warning.code === 'FALLBACK_USED'), 'fallback is warned about');
+
+  // A replayed turn is answered from the registry and dispatches nothing.
+  const replay = await governanceRuntime.executeObserved(
+    {
+      ...consumerRequest(),
+      requestId: 'req-portability-gov-2',
+      idempotencyKey: 'portability.gov.turn-1',
+      outputSchema: {
+        kind: 'INLINE',
+        schemaId: 'portability.summary',
+        version: '1.0',
+        dialect: 'aibridge.fields/v1',
+        fields: [{ name: 'summary', type: 'STRING', required: true, description: 'One-line summary.' }],
+      },
+    },
+    trustedContext(),
+  );
+  assert.equal(replay.result.status, 'SUCCEEDED', 'a replay returns the stored result');
+  assert.ok(replay.result.warnings.some((warning) => warning.code === 'IDEMPOTENT_REPLAY'), 'replays are marked');
+  assert.equal(first.callCount, 1, 'a replay makes no provider call');
+  assert.equal((await ledger.attempts()).length, 2, 'the ledger accounts exactly the real attempts');
+  assert.equal(metrics.sum('ai.fallback.count'), 1, 'the fallback metric is recorded');
+  assert.equal(govEvents.ofType('ai.fallback_applied').length, 1, 'the fallback event is emitted');
+
+  process.stdout.write('check-portability: smoke OK (13 assertions over the packed runtime surface)\n');
+}
+
+/** A tiny structured step helper for the governance smoke. */
+function structuredStepJson(text) {
+  return { kind: 'result', result: { text, usage: {}, finishReason: 'STOP' } };
 }
 
 await main();

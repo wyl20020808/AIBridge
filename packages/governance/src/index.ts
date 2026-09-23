@@ -89,6 +89,7 @@ export {
 export {
   InMemoryIdempotencyStore,
   IdempotencyRegistry,
+  hashRequestFingerprint,
   idempotencyIdentityKey,
   IDEMPOTENCY_CAPACITY,
   IDEMPOTENCY_RETENTION_MS,

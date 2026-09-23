@@ -278,7 +278,10 @@ export class ExecutionCoordinator {
       settleGate: ((value: AiResult<unknown>) => Promise<void>) | null,
     ): Promise<ExecutionOutcome> => {
       const finishedAtMs = this.#services.clock.nowMs();
-      const skipRecords = skipped.map(({ target, skip }, index) => this.#skipRecord(logicalRequestId, attemptRecords.length + index + 1, target, skip));
+      const allSkips: SkipEntry[] = [...plan.preSkipped.map((skip) => ({ target: null, skip })), ...skipped];
+      const skipRecords = allSkips.map(({ target, skip }, index) =>
+        this.#skipRecord(logicalRequestId, attemptRecords.length + index + 1, target, skip),
+      );
       const provenance: ReliabilityProvenance = {
         ...provenanceBase,
         finishedAtMs,
@@ -289,7 +292,7 @@ export class ExecutionCoordinator {
         fallbackCount: counts.fallback,
         retryCount: counts.retry,
         repairCount: counts.repair,
-        skippedCount: skipped.length,
+        skippedCount: allSkips.length,
         idempotencyOutcome,
       };
       const summary = summarize(provenance);
@@ -480,10 +483,12 @@ export class ExecutionCoordinator {
       }
 
       // Provider-scoped quota eligibility **and** reservation for this attempt (Phase 25/52/54).
+      // A policy pinned to another provider does not apply to this candidate at all.
+      const targetQuotaPolicies = providerQuotaPolicies.filter((policy) => policy.scopeKey === undefined || policy.scopeKey === target.providerId);
       const providerReservation = await this.#services.quotas.reserve(
         { ...quotaRequest, providerId: target.providerId },
         estimate,
-        providerQuotaPolicies,
+        targetQuotaPolicies,
       );
       if (!providerReservation.ok) {
         skipped.push({ target, skip: this.#skipOf(target, 'QUOTA_INELIGIBLE') });
@@ -621,6 +626,7 @@ export class ExecutionCoordinator {
         const canRepair = shaped.repairable && governance.outputRepair === 'ONCE' && !repaired;
         if (canRepair) {
           const repair = await this.#attemptRepair(plan, target, shaped, {
+            logicalRequestId,
             parentAttemptId: attemptId,
             parentSequence: sequence,
             ...(options.cancellation === undefined ? {} : { cancellation: options.cancellation }),
@@ -634,6 +640,12 @@ export class ExecutionCoordinator {
             attemptCosts,
             counts,
           });
+          if (repair.kind === 'skipped') {
+            // Phase 38: no budget for a repair — the original failure stands and is not a repair.
+            attemptErrors.push({ error: repair.error, sequence });
+            terminalError = repair.error;
+            break attemptLoop;
+          }
           sequence = repair.sequence;
           counts.repair += 1;
           repaired = true;
@@ -976,6 +988,7 @@ export class ExecutionCoordinator {
     target: AttemptTarget,
     failed: { readonly error: AiError; readonly issues: readonly ValidationIssue[]; readonly rawText: string },
     context: {
+      readonly logicalRequestId: string;
       readonly parentAttemptId: string;
       readonly parentSequence: number;
       readonly cancellation?: CancellationToken;
@@ -992,23 +1005,26 @@ export class ExecutionCoordinator {
   ): Promise<
     | { readonly kind: 'succeeded'; readonly output: Extract<ShapedOutput, { readonly ok: true }>; readonly usage: AiUsage; readonly sequence: number; readonly finishReason: AiFinishReason }
     | { readonly kind: 'failed'; readonly error: AiError; readonly sequence: number }
+    | { readonly kind: 'skipped'; readonly error: AiError; readonly sequence: number }
   > {
-    // Phase 38: no budget left ⇒ no repair. The original failure stands as repair exhaustion.
+    // Phase 38: no budget (or no quota reservation) ⇒ no repair. The **original** failure stands:
+    // repair exhaustion is only reported when a repair actually ran and failed (frozen §5.3).
     const providerDeadlineAtMs = providerDeadlineAt(plan.deadlineAtMs, this.#services.clock.nowMs(), plan.budget.providerMs);
     if (providerDeadlineAtMs === null) {
-      return { kind: 'failed', error: repairExhaustedError(failed.issues), sequence: context.parentSequence };
+      return { kind: 'skipped', error: failed.error, sequence: context.parentSequence };
     }
     const sequence = context.parentSequence + 1;
     const attemptId = this.#services.ids.next('att');
     const startedAtMs = this.#services.clock.nowMs();
 
+    const targetQuotaPolicies = context.providerQuotaPolicies.filter((policy) => policy.scopeKey === undefined || policy.scopeKey === target.providerId);
     const reservation = await this.#services.quotas.reserve(
       { ...context.quotaRequest, providerId: target.providerId },
       context.estimate,
-      context.providerQuotaPolicies,
+      targetQuotaPolicies,
     );
     if (!reservation.ok) {
-      return { kind: 'failed', error: repairExhaustedError(failed.issues), sequence: context.parentSequence };
+      return { kind: 'skipped', error: failed.error, sequence: context.parentSequence };
     }
 
     this.#services.events.emit({
@@ -1042,7 +1058,7 @@ export class ExecutionCoordinator {
     const status: AttemptStatus = outcome?.ok === true ? 'SUCCEEDED' : failure?.error.code === 'CANCELLED' ? 'CANCELLED' : 'FAILED';
     this.#recordAttempt(context.ledgerAttempts, context.attemptRecords, {
       plan,
-      logicalRequestId: '',
+      logicalRequestId: context.logicalRequestId,
       attemptId,
       sequence,
       attemptKind: 'REPAIR',
