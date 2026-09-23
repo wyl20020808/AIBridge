@@ -15,6 +15,14 @@ Layer 1   Generic Primitives               ai.structured.generate   ← V1 core
 The layer split exists so that "general" does not mean "a complete AI platform" and
 "specialized" does not mean "one customer's business logic compiled into a bridge".
 
+> **Stage 2 status.** `CapabilityRegistry` and `AiCapabilityDirectory` are implemented in
+> `@aibridge/core` as a **metadata** registry: they own a capability's schemas, policy, limits and
+> `schemaOwnership`, not its execution. There is no `handler` in `CapabilityRegistration` yet —
+> handlers arrive with the capability packs in Stage 8. Registration is idempotent for a
+> byte-identical record and `CONFLICTING_REGISTRATION` otherwise. The two V1 generic primitives are
+> registered as metadata (`GENERIC_CAPABILITY_REGISTRATIONS`); neither policy carries a business
+> rule. See [`CONTRACTS.md`](CONTRACTS.md) §10–13.
+
 ---
 
 ## 1. Layer 1 — Generic primitives
@@ -204,6 +212,15 @@ export type CapabilityRegistration = {
   readonly limits: CapabilityLimits;
   readonly allowGenericFallback: boolean;   // §6.3
   readonly retention: 'NONE' | 'METADATA_ONLY' | 'CONTENT';
+
+  /** Who authors each schema. Only a generic structured capability lets the caller supply output. */
+  readonly schemaOwnership: SchemaOwnership;
+};
+
+export type SchemaOwnership = {
+  readonly input: 'REGISTRY' | 'CALLER';
+  readonly output: 'REGISTRY' | 'CALLER';
+  readonly policy: 'REGISTRY';
 };
 ```
 
@@ -284,12 +301,14 @@ export type CapabilityDescriptor = {
   readonly status: CapabilityAvailability;    // 'AVAILABLE'|'DEGRADED'|'UNAVAILABLE'|'DISABLED'
   readonly requiredPrimitive: string;
   readonly profiles: readonly ModelProfile[];
+  readonly requirements: CapabilityRequirements;
   readonly inputSchema: OutputSchema;
   readonly outputSchema: OutputSchema;
   readonly policyId: string;
   readonly policyVersion: string;
   readonly allowGenericFallback: boolean;
   readonly limits: CapabilityLimits;
+  readonly schemaOwnership: SchemaOwnership;
 };
 ```
 

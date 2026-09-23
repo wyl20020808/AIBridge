@@ -7,6 +7,16 @@ Scope note: AI Bridge is **not** a DLP product and does not claim to be. What it
 of mechanical, testable boundaries — and the tests to prove them
 ([`TESTING.md`](TESTING.md) §2).
 
+> **Stage 2 status.** Several boundaries in this document are now enforced in code rather than
+> described. The consumer/trusted split is `parseConsumerAiRequest` (which rejects `callerPluginId`,
+> `subjectToken` and `permissions` with `TRUSTED_FIELD_IN_CONSUMER_REQUEST`) plus the
+> host-injected `TrustedDispatchContext` (§4). Input safety is `screenAiInput` in `@aibridge/core`
+> (§3): size → secret rejection → PII redaction. `scripts/check-no-secret-leak.mjs` scans every
+> committed file for credential shapes, with exactly one allow-listed synthetic fixture. The
+> response projection that excludes provider internals is a closed key set with an absence test
+> (§6). What is **not** yet implemented is listed in [`PROJECT_STATUS.md`](PROJECT_STATUS.md) — no
+> provider, key, network call or secret resolution runs in Stage 2.
+
 ---
 
 ## 1. Trust boundaries

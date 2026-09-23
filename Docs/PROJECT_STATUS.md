@@ -1,14 +1,14 @@
 # AI Bridge — Project Status
 
 Authoritative technical documents: [`ARCHITECTURE.md`](ARCHITECTURE.md),
-[`CAPABILITIES.md`](CAPABILITIES.md),
+[`CAPABILITIES.md`](CAPABILITIES.md), [`CONTRACTS.md`](CONTRACTS.md),
 [`INTEGRATION_CONTRACT_V1.md`](INTEGRATION_CONTRACT_V1.md), [`SECURITY.md`](SECURITY.md).
 Per-stage acceptance reports are in [`reports/`](reports/).
 
 | Stage | Scope | State |
 | --- | --- | --- |
 | 1 | Plugin architecture (boundaries, capability model, provider boundaries, security, routing, configuration, portability, versioning) | **PASS** |
-| 2 | Generic AI contracts | not started |
+| 2 | Generic AI contracts | **PASS** |
 | 3 | OpenAI-compatible provider | not started |
 | 4 | Structured generation | not started |
 | 5 | Routing + config + secrets | not started |
@@ -37,14 +37,31 @@ See [`ROADMAP.md`](ROADMAP.md) for the stage definitions and the Stage 2 checkli
 - [`SECURITY.md`](SECURITY.md) — trust boundaries, secret custody, input safety (reject secrets,
   redact PII), context security with deny-by-default allow-lists, caller identity, permission
   model, log redaction, structural vs business output safety, denial-of-wallet controls.
+- [`CONTRACTS.md`](CONTRACTS.md) — the Stage 2 contract reference: what each package exports, the
+  consumer/trusted split, schema ownership, the error model, and the gates that enforce them.
 - [`TESTING.md`](TESTING.md) — eleven test layers including mechanically asserted secret-leak,
   raw-error non-penetration and `callerPluginId` unforgeability tests.
 - [`fixtures/`](fixtures/) — nine compatibility fixtures across two capability families.
 - [`ROADMAP.md`](ROADMAP.md) — Stages 1–10, the Stage 2 checklist, the AlgoQuest parallel plan.
 - `plugin.manifest.json` — host-neutral identity `ai.bridge`, `"entry": null`.
 
+Stage 2 added three portable packages (`npm` workspaces, ESM, strict TypeScript, project
+references):
+
+- `packages/contracts` (`@aibridge/contracts`) — **zero runtime dependencies**. Versions,
+  envelopes, the twelve-code error model, strict parsers returning sorted rooted issues,
+  capability/descriptor types, the `aibridge.fields/v1` dialect, extraction/validation/repair.
+- `packages/core` (`@aibridge/core`) — input-safety boundary, structural output safety,
+  `CapabilityRegistry`, `AiCapabilityDirectory`, kill switches, provider/model registries. No
+  concrete provider, host or consumer.
+- `packages/host-sdk` (`@aibridge/host-sdk`) — host port interfaces, in-memory + mutant fakes, a
+  scripted provider, and the host/provider conformance kits.
+- Five gates: `check-adapter-coupling.mjs`, `check-no-secret-leak.mjs`, `check-runtime-deps.mjs`,
+  a portability gate (`npm run check:portability`), and CI
+  (`.github/workflows/verify.yml`).
+
 **Not present, deliberately:** any provider implementation, any API key, any network call, any
-UI, any host modification, any `packages/` directory.
+UI, any host modification. `entry` is still `null`.
 
 ## Stage 1 exit gate
 
@@ -78,7 +95,29 @@ UI, any host modification, any `packages/` directory.
 | AlgoQuest untouched | read-only audit only |
 | Working tree clean | `git status` clean at the Stage 1 commit |
 
-## Stage gates that stay closed
+## Stage 2 exit gate
+
+`AIBRIDGE_STAGE_2 = PASS`
+
+| Requirement | Evidence |
+| --- | --- |
+| Contracts package compiles, zero runtime deps | `packages/contracts/package.json` (no `dependencies`); `scripts/check-runtime-deps.mjs` |
+| Strict parsers, closed key sets, sorted rooted issues | [`CONTRACTS.md`](CONTRACTS.md) §3; `tests/contracts/` |
+| Twelve codes, closed reasons, retryability table | [`CONTRACTS.md`](CONTRACTS.md) §4; `tests/contracts/error-model.test.ts` |
+| Consumer/trusted split enforced | `parseConsumerAiRequest` rejects `callerPluginId`/`subjectToken`/`permissions`; `tests/security/boundaries.test.ts` |
+| Response invariants, no partial results | `tests/contracts/response.test.ts`; `tests/properties/invariants.test.ts` |
+| Schema ownership locked | [`CONTRACTS.md`](CONTRACTS.md) §6; `tests/core/registry.test.ts` |
+| Every fixture yields its declared `expect` + `reason` | `tests/fixtures/fixtures.test.ts` (9 fixtures) |
+| Security tests exist and fail on a synthetic leak | [`TESTING.md`](TESTING.md) §2; `tests/security/`, `check-no-secret-leak.mjs` |
+| Coupling + secret-leak checks run in `verify` | `package.json` scripts; `scripts/check-adapter-coupling.mjs` |
+| Unknown-major rejection demonstrated | `tests/contracts/versions.test.ts`; `tests/contracts/request.test.ts` |
+| Portability proven | `npm run check:portability` (pack → offline install → typecheck → smoke) |
+| OJPlatform untouched | read-only audit only |
+| AlgoQuest untouched | read-only audit only |
+| Working tree clean | `git status` clean at the Stage 2 commit |
+| Full report | [`reports/STAGE_2_GENERIC_AI_CONTRACTS_REPORT.md`](reports/STAGE_2_GENERIC_AI_CONTRACTS_REPORT.md) |
+
+## Stage gates — current state
 
 | Gate | State |
 | --- | --- |
@@ -87,7 +126,7 @@ UI, any host modification, any `packages/` directory.
 | UI | **NOT ALLOWED** ([`AGENTS.md`](../AGENTS.md) §6) |
 | Production runtime changed | **NO** |
 | Host modified | **NO** |
-| `packages/` created | **NO** — created only when there is code and a test to carry |
+| `packages/` created | **YES** — `contracts`, `core`, `host-sdk` (code + tests) |
 
 ## Status update rules
 

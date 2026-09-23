@@ -16,6 +16,34 @@ AI Bridge to be implemented**.
 Full rationale: [`ARCHITECTURE.md`](ARCHITECTURE.md). Capability semantics:
 [`CAPABILITIES.md`](CAPABILITIES.md).
 
+> **Compatibility note — Stage 2 implementation (additive within major 1).** Stage 2 turned this
+> document into a compiling, tested surface. Four additions were needed and are recorded here per
+> [`../AGENTS.md`](../AGENTS.md) §8. All four are **additive**: no frozen field changed meaning, no
+> value was removed or renamed, and every `FROZEN` fixture still parses unchanged. Because no
+> versioned consumer exists yet (AlgoQuest Stage 6 has not started), the contract stays `1.0`; a
+> consumer built from this document must accept the two new descriptor fields below.
+>
+> 1. **Error stage `INTERNAL`** (§7). `ARCHITECTURE.md` §6.2 grouped reasons under an `INTERNAL`
+>    label while §6.1 omitted it from the stage list. Stage 2 reconciles the gap by adding
+>    `INTERNAL` to the closed stage set. Additive enum member.
+> 2. **Three error reasons** (§7): `TRUSTED_FIELD_IN_CONSUMER_REQUEST` (a consumer request carrying
+>    a host-bound field), `OUTPUT_SCHEMA_OVERRIDE_FORBIDDEN` (a caller authoring the output schema of
+>    a capability that owns its own), and `JSON_PARSE_FAILED` (a distinct, stable reason for the
+>    extraction parse step, so `EXTRACTION_FAILED` no longer has to stand in for it). Additive
+>    reasons; the reason set was always closed per `ARCHITECTURE.md` §6.2.
+> 3. **Two required `CapabilityDescriptor` fields** (§6): `requirements: CapabilityRequirements`
+>    and `schemaOwnership: { input, output, policy }`. `schemaOwnership` is the load-bearing one: it
+>    states that only a generic *structured* capability lets the caller supply `outputSchema`, and
+>    that every other capability owns its input, output and policy schema. It makes
+>    `OUTPUT_SCHEMA_OVERRIDE_FORBIDDEN` mechanically checkable instead of tribal knowledge.
+> 4. **`aibridge.fields/v2` is proposed, not shipped.** Adding `INTEGER` and `ENUM` field types was
+>    evaluated and deliberately **not** done: `aibridge.fields/v1` is frozen and a consumer already
+>    parses its six types. The extension is recorded as a future `v2` so the gap is visible rather
+>    than silently closed. No `v1` field type changed.
+>
+> Fixture impact: none. The nine fixtures already express these rules (the `secret-input` and
+> `unknown-metadata` fixtures are the same rejections, now named by the reasons above).
+
 ---
 
 ## 0. What is frozen, and what is not
@@ -350,12 +378,20 @@ export type CapabilityDescriptor = {
   readonly status: CapabilityAvailability;
   readonly requiredPrimitive: string;
   readonly profiles: readonly ModelProfile[];
+  readonly requirements: CapabilityRequirements;      // additive, Stage 2 — see the compatibility note
   readonly inputSchema: OutputSchema;
   readonly outputSchema: OutputSchema;
   readonly policyId: string;
   readonly policyVersion: string;
   readonly allowGenericFallback: boolean;
   readonly limits: { maxInputBytes: number; maxOutputBytes: number; totalTimeoutMs: number; maxCallsPerTurn: number };
+  readonly schemaOwnership: SchemaOwnership;           // additive, Stage 2 — see the compatibility note
+};
+
+export type SchemaOwnership = {
+  readonly input: 'REGISTRY' | 'CALLER';
+  readonly output: 'REGISTRY' | 'CALLER';
+  readonly policy: 'REGISTRY';
 };
 
 export type AiBridgeStatus = {
@@ -397,8 +433,9 @@ export type AiError = {
   readonly retryable: boolean;       // authoritative for the caller
   readonly retryAfterMs?: number;
   readonly stage: 'ENVELOPE' | 'PERMISSION' | 'INPUT_SAFETY' | 'ROUTING' | 'PROVIDER'
-               | 'EXTRACTION' | 'VALIDATION' | 'POLICY' | 'DEADLINE' | 'GOVERNANCE' | 'CANCELLATION';
-  readonly reason?: AiErrorReason;   // closed set — ARCHITECTURE.md §6.2
+               | 'EXTRACTION' | 'VALIDATION' | 'POLICY' | 'DEADLINE' | 'GOVERNANCE' | 'CANCELLATION'
+               | 'INTERNAL';   // INTERNAL is additive, Stage 2 — see the compatibility note
+  readonly reason?: AiErrorReason;   // closed set — ARCHITECTURE.md §6.2, plus the Stage 2 additions
   readonly details?: Readonly<Record<string, string | number | boolean>>;
 };
 ```
