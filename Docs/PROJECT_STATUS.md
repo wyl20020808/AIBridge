@@ -11,7 +11,7 @@ Per-stage acceptance reports are in [`reports/`](reports/).
 | 2 | Generic AI contracts | **PASS** |
 | 3 | Provider runtime & reference adapter | **PASS** |
 | 4 | Provider suite & multi-provider qualification | **PASS** |
-| 5 | Routing + config + secrets | not started |
+| 5 | Reliability, Fallback & Governance | **PASS** |
 | 6 | Reliability | not started |
 | 7 | Usage + rate limits | not started |
 | 8 | Specialized capability packs | not started |
@@ -41,7 +41,13 @@ See [`ROADMAP.md`](ROADMAP.md) for the stage definitions and the Stage 2 checkli
   consumer/trusted split, schema ownership, the error model, and the gates that enforce them.
 - [`TESTING.md`](TESTING.md) — eleven test layers including mechanically asserted secret-leak,
   raw-error non-penetration and `callerPluginId` unforgeability tests.
-- [`fixtures/`](fixtures/) — nine compatibility fixtures across two capability families.
+- [`RELIABILITY.md`](RELIABILITY.md) — fallback, bounded retry and output repair as implemented by
+  `ExecutionCoordinator`.
+- [`GOVERNANCE.md`](GOVERNANCE.md) — circuit breaker, runtime health, idempotency, rate limit, quota
+  and budget.
+- [`USAGE_AND_COST.md`](USAGE_AND_COST.md) — usage ledger, pinned pricing records, cost estimation.
+- [`CONFIG_RELOAD.md`](CONFIG_RELOAD.md) — runtime config snapshots, atomic reload and rollback.
+- [`fixtures/`](fixtures/) — ten compatibility fixtures across two capability families.
 - [`ROADMAP.md`](ROADMAP.md) — Stages 1–10, the Stage 2 checklist, the AlgoQuest parallel plan.
 - `plugin.manifest.json` — host-neutral identity `ai.bridge`, `"entry": null`.
 
@@ -99,6 +105,23 @@ Stage 3 added two more portable packages and paid down the ESLint deferral:
   transport seam is self-declared (declaration-hygiene gate).
 - `npm run lint` (ESLint) inside `npm run verify`; `npm run test:live-provider` as an **opt-in**
   real-provider smoke (`SKIP` without credentials, never in PR CI).
+
+Stage 5 added one package and extended the runtime — no provider, no UI, no production change:
+
+- `packages/governance` (`@aibridge/governance`) — host-neutral reliability and governance
+  primitives (depends only on `@aibridge/contracts` + `@aibridge/host-sdk`): fallback policy,
+  bounded retry, circuit breaker + runtime health, idempotency, rate limit, quota with
+  reservations, usage ledger, versioned pricing + cost estimation, budget, reliability provenance,
+  terminal error selection and safe observability — every stateful piece behind a port
+  (`IdempotencyStorePort`, `RateLimitStorePort`, `QuotaStorePort`, `UsageLedgerPort`,
+  `ConfigSnapshotStorePort`) with an in-memory reference implementation.
+- `@aibridge/runtime` — `ExecutionCoordinator` (logical request → attempts → result + provenance),
+  `AiRuntime.executeObserved` / `getProviderHealth()`, `ConfigManager` + `RuntimeConfigSnapshot`
+  (validated-first atomic reload and rollback), shared output shaping + bounded repair,
+  `enumerateRouteCandidates`, `validateFallbackChain`.
+- `@aibridge/contracts` — additive only: `AiUsage.reasoningTokens`, warning `RETRY_USED`, reasons
+  `QUOTA_CAPABILITY` / `QUOTA_PROVIDER` / `COST_BUDGET_EXHAUSTED`, versions `1.1`
+  ([`INTEGRATION_CONTRACT_V1.md`](INTEGRATION_CONTRACT_V1.md) compatibility note).
 
 ## Stage 1 exit gate
 
@@ -212,6 +235,41 @@ Stage 3 added two more portable packages and paid down the ESLint deferral:
 | Working tree clean | `git status` clean at the Stage 4 commits |
 | Full report | [`reports/STAGE_4_PROVIDER_SUITE_REPORT.md`](reports/STAGE_4_PROVIDER_SUITE_REPORT.md) |
 
+## Stage 5 exit gate
+
+`AIBRIDGE_STAGE_5 = PASS`
+
+| Requirement | Evidence |
+| --- | --- |
+| Deterministic automatic fallback | `decideFallback` + `ExecutionCoordinator.execute` (`nextFallbackVerdict` over `nextFallback`), stable terminal via `selectTerminalError`; `tests/runtime/fallback-execution.test.ts` |
+| Bounded retry + deterministic backoff | `decideRetry`, `classifyRetryPhase`, `backoffDelayMs` (`MAX_SAME_PROVIDER_RETRIES = 1`, `Clock`/`Sleeper`); `tests/runtime/retry-repair.test.ts` |
+| Unknown-outcome retry safety | `ProviderRawError.dispatched` + `ProviderDescriptor.supportsReliableIdempotency`; `tests/governance/policy.test.ts` (Phase 8) |
+| Overall deadline preserved | one shared budget per logical request; `tests/runtime/fallback-execution.test.ts`, `tests/properties/reliability.test.ts` |
+| No silent capability downgrade | `enumerateRouteCandidates` + `validateFallbackChain`; config validation rejects `allowCapabilityDegrade`; `tests/runtime/config-reload.test.ts` |
+| Circuit breaker + provider/model health | `CircuitBreaker` / `CircuitBreakerRegistry` (key `providerId`+`modelAlias`), `RuntimeHealthRegistry`, `AiRuntime.getProviderHealth()`; `tests/governance/breaker-health.test.ts` |
+| Idempotent turns — replay, join, conflict | `IdempotencyRegistry.gate`, `hashRequestFingerprint` (15 min / 10 000 LRU); `tests/runtime/idempotency-governance.test.ts`, `tests/governance/idempotency-rate-quota.test.ts` |
+| Rate limit, quota + reservations | `RateLimiter` (5 dimensions), `QuotaManager.reserve`/`settle`; `tests/governance/idempotency-rate-quota.test.ts` |
+| Fallback cannot bypass consumer quota | `decideFallback` never chases own quota/budget limits; `tests/runtime/fallback-execution.test.ts` (Phase 54) |
+| Usage ledger + attempt accounting | `InMemoryUsageLedger` (`LogicalRequestUsageRecord` / `ProviderAttemptUsageRecord`); `tests/governance/cost-ledger.test.ts` |
+| Reasoning token projection safe | `AiUsage.reasoningTokens` (count only); `tests/governance/cost-ledger.test.ts` (Phase 59) |
+| Cost estimation, pinned pricing, unknown ≠ 0 | `PricingTable`, `estimateCost`, `UNKNOWN_COST`; `tests/governance/cost-ledger.test.ts` (Phase 30–33) |
+| Request budget | `checkRequestBudget` → `COST_BUDGET_EXHAUSTED`, zero dispatch; `tests/runtime/idempotency-governance.test.ts` (Phase 34) |
+| Bounded output repair + accounting | `output.ts` shared shaping + bounded repair; `tests/runtime/retry-repair.test.ts` (Phase 36–38) |
+| Atomic reload / rollback / one snapshot per request | `ConfigManager.reload`/`rollback`, `RuntimeConfigSnapshot`, `ConfigSnapshotStorePort`; `tests/runtime/config-reload.test.ts` (Phase 39–43) |
+| Observability | `InMemoryMetrics`, `RecordingOperationalEvents` (closed label set, metadata-only); `tests/runtime/observability.test.ts` |
+| No prompt/response/secret in metrics or ledger | `tests/security/governance-privacy.test.ts`; [`SECURITY.md`](SECURITY.md) §8 |
+| Cancellation / kill switch | cancellation stops retry/fallback/repair; kill-switched candidates skipped; `tests/runtime/idempotency-governance.test.ts` (Phase 50), `tests/runtime/fallback-execution.test.ts` (Phase 49/52) |
+| Property / fuzz / chaos | `tests/properties/reliability.test.ts` (Phase 63–65) |
+| Additive contract change recorded | [`INTEGRATION_CONTRACT_V1.md`](INTEGRATION_CONTRACT_V1.md) Stage 5 compatibility note, versions `1.1`; `tests/contracts/versions.test.ts` |
+| Test suite | **473** tests green (120 new), Stage 1–4 suites included |
+| Typecheck / lint / gates / build / portability / verify | `npm run verify` green; 9 packages packed, offline-installed, declaration-hygiene scanned and smoke-tested |
+| Live rows | relay `LIVE_QUALIFIED`; OpenAI/DeepSeek/Xiaomi `LIVE_NOT_RUN`; `test:live:reliability` `SKIP` without two credentials (opt-in, never in `verify`) |
+| Docs | [`RELIABILITY.md`](RELIABILITY.md), [`GOVERNANCE.md`](GOVERNANCE.md), [`USAGE_AND_COST.md`](USAGE_AND_COST.md), [`CONFIG_RELOAD.md`](CONFIG_RELOAD.md); [`TESTING.md`](TESTING.md) §1.2 |
+| No production runtime change | `plugin.manifest.json` unchanged, `entry: null`, `deploy/` untouched |
+| OJPlatform / AlgoQuest untouched | read-only audit (report §DEPLOYMENT, §GIT) |
+| Working tree clean | `git status` clean at the Stage 5 commits; no remote |
+| Full report | [`reports/STAGE_5_RELIABILITY_GOVERNANCE_REPORT.md`](reports/STAGE_5_RELIABILITY_GOVERNANCE_REPORT.md) |
+
 ## Stage gates — current state
 
 | Gate | State |
@@ -219,10 +277,11 @@ Stage 3 added two more portable packages and paid down the ESLint deferral:
 | Real provider connected | **TEST PATH ONLY** — opt-in live harness; relay row live-qualified. No provider in any production user flow |
 | API key configured | **NEVER COMMITTED** — `credentialRef` handles resolved through the trusted secret boundary |
 | Providers implemented | **4** (OpenAI Official, DeepSeek Official, Xiaomi Token Plan, Generic Relay) |
+| Tests | **473** passing (151 suites) — Stage 1–4 suites green |
 | UI | **NOT ALLOWED** ([`AGENTS.md`](../AGENTS.md) §6) |
 | Production runtime changed | **NO** |
 | Host modified | **NO** |
-| `packages/` created | **YES** — `contracts`, `core`, `host-sdk`, `runtime`, `provider-openai-compatible`, `provider-openai`, `provider-deepseek`, `provider-xiaomi-tokenplan` |
+| `packages/` created | **YES** — `contracts`, `core`, `host-sdk`, `runtime`, `governance`, `provider-openai-compatible`, `provider-openai`, `provider-deepseek`, `provider-xiaomi-tokenplan` |
 
 ## Status update rules
 

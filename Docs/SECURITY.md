@@ -42,6 +42,18 @@ of mechanical, testable boundaries — and the tests to prove them
 > (e) Live credentials enter only from the environment; web sessions, cookies and subscription
 > logins are explicitly out of scope and no code touches them.
 
+> **Stage 5 status.** The governance layer holds the same line. Every governance store — usage
+> ledger, metrics, operational events, breaker/health state, quota and rate state, config history —
+> is mechanically scanned for secrets, prompts, learner text, raw output and reasoning content
+> (`tests/security/governance-privacy.test.ts`). Subject tokens appear only as `hashSubjectToken`
+> output (`subjectHash`), never the token. Config snapshots hold `credentialRef` **handles** only; a
+> raw credential fails validation. Idempotency request fingerprints are **hashed** before storage
+> (`hashRequestFingerprint`) — a raw digest embeds the input, and the replay cache is not a prompt
+> archive. One boundary is stated, not hidden: the idempotency replay cache holds the
+> **consumer-visible result**, because a replay must be faithful (frozen §10.2). It is
+> retention-limited in-memory state, **never a log** — and it may not contain credentials, prompts,
+> reasoning content or raw errors (asserted).
+
 ---
 
 ## 1. Trust boundaries
@@ -346,6 +358,8 @@ one product's rules and stops being reusable.
 | a caller hopping providers to escape a quota | `fallbackOnQuotaExceeded` defaults **false** |
 | retry amplification | bounded retry (§[`ARCHITECTURE.md`](ARCHITECTURE.md) §10.3), repair capped at one |
 | billing duplication on transport retry | `idempotencyKey` (§14) |
+| duplicate billing on retry | unknown-outcome retry requires `supportsReliableIdempotency` |
+| denial of wallet via fallback chains | one shared overall deadline + shared cost budget |
 | a throttled caller becoming an abusive one | in-process retry of `RATE_LIMITED` is discouraged; `retryAfterMs` is returned instead |
 | emergency stop | three kill switches (§20) |
 

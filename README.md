@@ -17,7 +17,7 @@ Consumer plugin
       └─ provider adapter C
 ```
 
-## Current status — Stage 4
+## Current status — Stage 5
 
 **Four real provider paths, one runtime, one generic result. No UI. No production change.**
 
@@ -26,7 +26,7 @@ Consumer plugin
 | Providers implemented | **4** — OpenAI Official (Responses), DeepSeek Official, Xiaomi MiMo Token Plan, Generic OpenAI-Compatible Relay |
 | Real provider connected | **TEST PATH ONLY** — opt-in live harness (relay row live-qualified) |
 | API key configured | **NEVER COMMITTED** — `credentialRef` handles through the trusted secret boundary |
-| Runtime code shipped | **YES** — eight dependency-free packages |
+| Runtime code shipped | **YES** — nine dependency-free packages |
 | UI | **NOT ALLOWED** |
 | Production runtime changed | **NO** |
 
@@ -35,11 +35,14 @@ real provider. Stage 4 built the **provider suite**: `@aibridge/provider-openai`
 `@aibridge/provider-deepseek` (thinking + reasoning isolation), `@aibridge/provider-xiaomi-tokenplan`
 (Token Plan auth + clusters) and the hardened `@aibridge/provider-openai-compatible` (generic
 relay, SSRF-safe endpoints), plus deterministic multi-provider configuration (presets, model
-aliases, profile routing, no silent degrade). Consumers still never learn which vendor served a
-call. See [`Docs/PROVIDERS.md`](Docs/PROVIDERS.md),
+aliases, profile routing, no silent degrade). Stage 5 made the multi-provider runtime **reliable and
+governable**: automatic fallback, bounded retry and output repair, circuit breaker + provider
+health, idempotency, rate limits and quotas, a usage ledger with cost estimation, atomic config
+reload and observability. Consumers still never learn which vendor served a call. See
+[`Docs/PROVIDERS.md`](Docs/PROVIDERS.md),
 [`Docs/PROVIDER_CONFIGURATION.md`](Docs/PROVIDER_CONFIGURATION.md),
 [`Docs/PROJECT_STATUS.md`](Docs/PROJECT_STATUS.md) and
-[`Docs/reports/STAGE_4_PROVIDER_SUITE_REPORT.md`](Docs/reports/STAGE_4_PROVIDER_SUITE_REPORT.md).
+[`Docs/reports/STAGE_5_RELIABILITY_GOVERNANCE_REPORT.md`](Docs/reports/STAGE_5_RELIABILITY_GOVERNANCE_REPORT.md).
 
 ## Packages
 
@@ -49,6 +52,7 @@ call. See [`Docs/PROVIDERS.md`](Docs/PROVIDERS.md),
 | `@aibridge/core` | input safety, structural output safety, capability registry + directory, kill switches, provider/model registries, endpoint (SSRF) safety | `@aibridge/contracts` |
 | `@aibridge/host-sdk` | host ports, in-memory + mutant fakes, scripted provider, host/provider conformance kits | `@aibridge/contracts`, `@aibridge/core` |
 | `@aibridge/runtime` | pipeline, multi-provider config (presets, aliases, routes), trusted secret resolution, fallback chain contract, safe diagnostics | `@aibridge/contracts`, `@aibridge/core`, `@aibridge/host-sdk` |
+| `@aibridge/governance` | reliability + governance: fallback/retry policy, circuit breaker + health, idempotency, rate limit, quota, usage ledger + cost, budget, observability | `@aibridge/contracts`, `@aibridge/host-sdk` |
 | `@aibridge/provider-openai-compatible` | Generic Relay provider + the internal OpenAI-compatible wire layer | `@aibridge/contracts`, `@aibridge/core` |
 | `@aibridge/provider-openai` | OpenAI Official (Responses API) | `@aibridge/contracts`, `@aibridge/core` |
 | `@aibridge/provider-deepseek` | DeepSeek Official (thinking, reasoning isolation) | `@aibridge/contracts`, `@aibridge/core`, `@aibridge/provider-openai-compatible` |
@@ -71,6 +75,10 @@ portability). Live qualification is opt-in and never in CI:
 | [`Docs/INTEGRATION_CONTRACT_V1.md`](Docs/INTEGRATION_CONTRACT_V1.md) | **Frozen parallel contract** for consumer plugins (AlgoQuest Stage 6) |
 | [`Docs/SECURITY.md`](Docs/SECURITY.md) | Secret boundary, PII/secret input policy, permissions, log redaction |
 | [`Docs/TESTING.md`](Docs/TESTING.md) | Test strategy, incl. mechanically asserted secret-leak tests |
+| [`Docs/RELIABILITY.md`](Docs/RELIABILITY.md) | Fallback, bounded retry and output repair as implemented |
+| [`Docs/GOVERNANCE.md`](Docs/GOVERNANCE.md) | Circuit breaker, health, idempotency, rate limit, quota and budget |
+| [`Docs/USAGE_AND_COST.md`](Docs/USAGE_AND_COST.md) | Usage ledger, pinned pricing records and cost estimation |
+| [`Docs/CONFIG_RELOAD.md`](Docs/CONFIG_RELOAD.md) | Config snapshots, atomic reload and rollback |
 | [`Docs/ROADMAP.md`](Docs/ROADMAP.md) | Stage 2–10 plan and the AlgoQuest parallel plan |
 | [`Docs/PROJECT_STATUS.md`](Docs/PROJECT_STATUS.md) | Stage ledger and exit-gate evidence |
 | [`Docs/fixtures/`](Docs/fixtures/) | Shared JSON contract fixtures, no cross-repo code import |

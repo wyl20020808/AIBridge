@@ -12,11 +12,11 @@ The list below is not a wish list. Every item names a failure it catches, and ev
 | **1. Contract tests** | `@aibridge/contracts` accepts what the contract says is valid and rejects what it says is invalid, with the exact `reason` | Stage 2 |
 | **2. Security tests** | secrets, raw errors and learner text never leak across any boundary | Stage 2 (skeleton) → Stage 3 (live) |
 | **3. Provider conformance** | every adapter behaves identically at the AI Bridge boundary | Stage 3 |
-| **4. Routing / fallback** | route resolution, chain order, budget arithmetic | Stage 5 |
+| **4. Routing / fallback** | route resolution, chain order, bounded retry, budget arithmetic | Stage 5 |
 | **5. Structured output** | extraction, validation, repair, no-partial-results | Stage 4 |
-| **6. Rate limit / quota** | all four dimensions, both mechanisms | Stage 7 |
-| **7. Idempotency** | one learning turn ⇒ one billed call | Stage 6 |
-| **8. Usage** | records are complete, and contain no content | Stage 7 |
+| **6. Rate limit / quota** | all five dimensions, both mechanisms | Stage 5 |
+| **7. Idempotency** | one learning turn ⇒ one billed call | Stage 5 |
+| **8. Usage** | records are complete, and contain no content | Stage 5 |
 | **9. Capability packs** | each pack's policy holds, incl. business safety | Stage 8 |
 | **10. Portability** | no forbidden dependency anywhere | Stage 2 |
 | **11. Compatibility fixtures** | [`fixtures/`](fixtures/) agree with a consumer's own parser | Stage 2, and continuously |
@@ -57,6 +57,30 @@ one table executed through one `AiRuntime` **per provider** (`tests/runtime/prov
 text success · structured success · malformed response · 401/403 · 404 model · 429 · 5xx ·
 timeout · cancel · usage · finish reason · stream success · stream error · credential-leak and
 malicious-provider-error sanitization. Provider-specific suites live beside it.
+
+### 1.2 Stage 5 reliability suites (Phase 63–65 and the governance/runtime suites)
+
+Each row names the failure it catches:
+
+| Suite | Failure it catches |
+| --- | --- |
+| `tests/properties/reliability.test.ts` — property (Phase 63) | a generated case where one fingerprint runs two execution chains, a different fingerprint returns the old result, a fallback widens the deadline or degrades capability, a consumer quota is routable-around, a failed reload replaces the snapshot, an unknown cost becomes zero, or the ledger holds prompt/raw response text |
+| `tests/properties/reliability.test.ts` — fuzz (Phase 64) | a random failure/graph/breaker/quota/rate/repair sequence that loops, reuses an attempt id, overspends quota, disagrees with the ledger, or produces more than one terminal result |
+| `tests/properties/reliability.test.ts` — chaos (Phase 65) | timeouts, malformed payloads, late answers and 429/503 storms that make the runtime throw, hang, or double-terminate |
+| `tests/governance/policy.test.ts` | a fallback or retry decision that chases a request/content failure or the caller's own limits, repeats an unknown outcome without reliable idempotency, exceeds one same-provider retry, backs off non-deterministically, or accepts a cyclic/impossible fallback chain |
+| `tests/governance/breaker-health.test.ts` | a caller-side failure moving the breaker, dispatch through an open breaker, or one 429 becoming a permanent health verdict |
+| `tests/governance/idempotency-rate-quota.test.ts` | one turn billed twice, a same-key different-body replay, a non-atomic claim or rate window that overshoots, or an unknown usage settled at zero |
+| `tests/governance/cost-ledger.test.ts` | a historical price rewritten by a later rate card, an unpriced model priced as zero, a missing attempt record, or a reasoning token treated as anything but a count |
+| `tests/runtime/fallback-execution.test.ts` | a chain that silently degrades capability, chases `CONTENT_BLOCKED`, routes around a consumer quota, dispatches past a kill switch or open breaker, or outruns the shared deadline |
+| `tests/runtime/retry-repair.test.ts` | an unbounded retry storm, an unknown outcome repeated without reliable idempotency, a repair that runs twice, hides its call or fires on a content failure, or a misreported `OUTPUT_REPAIR_EXHAUSTED` |
+| `tests/runtime/idempotency-governance.test.ts` | a non-faithful replay, unjoined concurrent duplicates, a replay that consumes quota or rate budget, or retry/fallback/repair continuing after cancellation |
+| `tests/runtime/config-reload.test.ts` | an unknown config field slipping through, a raw credential or unsafe endpoint in a snapshot, a duplicate/impossible fallback target accepted, a half-applied reload, or an in-flight request mixing two config generations |
+| `tests/runtime/observability.test.ts` | a metric label or event payload carrying a subject, request id or content, a missing refusal/breaker/retry signal, or an open operational-event vocabulary |
+| `tests/security/governance-privacy.test.ts` | a secret, prompt, learner text, raw response or reasoning content in any governance store or config snapshot, or an unknown cost laundered into zero |
+
+`npm run test:live:reliability` is **opt-in** and never part of `verify`: it runs a real fallback
+smoke only when two providers have credentials and reports `SKIP` otherwise — a `SKIP` never fails
+the stage.
 
 ---
 
@@ -178,7 +202,7 @@ These must fail the build. "Reviewed by a human" is not a security control.
 
 ### 3.7 Rate limit and quota
 
-- all four dimensions enforced independently; strictest wins.
+- all five dimensions enforced independently; strictest wins.
 - `retryAfterMs` is populated and sane.
 - `QUOTA_EXCEEDED` is distinguishable from `RATE_LIMITED` in `reason` and in the outcome.
 

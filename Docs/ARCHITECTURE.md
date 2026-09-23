@@ -670,6 +670,12 @@ If nothing survives: `FAILED` with `ROUTING / NO_ROUTE`.
 Three distinct mechanisms. Conflating them is how a system ends up issuing thirty billed calls
 for one learning turn.
 
+> **Stage 5 status.** These mechanisms are now implemented: `ExecutionCoordinator`
+> (`packages/runtime/src/coordinator.ts`) applies retry, fallback and bounded repair to one logical
+> request, and `@aibridge/governance` supplies the policy primitives behind them. Full treatment in
+> [`RELIABILITY.md`](RELIABILITY.md), [`GOVERNANCE.md`](GOVERNANCE.md),
+> [`USAGE_AND_COST.md`](USAGE_AND_COST.md) and [`CONFIG_RELOAD.md`](CONFIG_RELOAD.md).
+
 ### 10.1 Fallback — provider A → provider B
 
 **Allowed only for these outcomes**, and only when the policy says so:
@@ -724,17 +730,19 @@ Repair is the only sanctioned response to `SCHEMA_MISMATCH`, because the failure
 
 ### 10.5 Circuit breaking
 
-**V1: not implemented as a circuit breaker.** The full state machine (closed/half-open, failure
-rate windows, probe traffic) is deferred to Stage 6 — the implementation cost is real and V1's
-reliability budget is better spent on timeouts and fallback.
+> **Stage 5 status.** Implemented: `CircuitBreaker` / `CircuitBreakerRegistry`
+> (`@aibridge/governance`) run the full state machine — `CLOSED → OPEN → HALF_OPEN`, a failure
+> window, a cooldown and bounded half-open probes — keyed on **`providerId` + `modelAlias`**, so one
+> bad model never disables a provider's other models. Only provider-transient failures count against
+> it ([`GOVERNANCE.md`](GOVERNANCE.md)).
 
-**But the architecture must allow it now**, which is why:
+**The architecture allowed it from the start**, which is why:
 
 - `ProviderHealth` exists on the adapter (§7) and `AiRouter` filters on availability (§9.2 step 5);
 - `ProviderRuntimeState` (`ENABLED | DEGRADED | DISABLED`) is mutable at runtime;
-- an operator (or a future breaker) can flip `main` to `DEGRADED` without a redeploy;
+- an operator (or the breaker) can flip `main` to `DEGRADED` without a redeploy;
 - every route decision records `routeDepth` and `attemptCount`, so a breaker can be built on
-  telemetry without changing the contract.
+  telemetry without changing the contract — which is what Stage 5 did.
 
 ---
 
@@ -889,6 +897,12 @@ turn**.
 - The same key with a **different** request digest ⇒ `INVALID_REQUEST` / `IDEMPOTENCY_CONFLICT`.
   Silent replay of a *different* request would be worse than failing.
 
+> **Stage 5 status.** Implemented as `IdempotencyRegistry` over `IdempotencyStorePort`
+> ([`GOVERNANCE.md`](GOVERNANCE.md)): a concurrent duplicate **joins** the in-flight call, a replay
+> consumes no quota and no rate budget, and the request fingerprint is **hashed** before storage
+> (`hashRequestFingerprint`) — a raw digest embeds the request body, and the replay cache is not a
+> prompt archive.
+
 ### 14.3 Trade-off, stated honestly
 
 Providers almost never support idempotency (`supportsIdempotency: false` by default, §7.1), so
@@ -914,14 +928,15 @@ Rejected: asking the consumer to dedupe — a consumer cannot dedupe a call it a
 
 A sliding window over a time unit. `20 req/min`.
 
-Dimensions (all four enforced independently; the strictest wins):
+Dimensions (all five enforced independently; the strictest wins):
 
 | Dimension | Keyed by |
 | --- | --- |
 | subject | `subjectToken` |
 | caller plugin | `callerPluginId` |
 | capability | `capability@major` |
-| global provider | `providerId` |
+| provider | `providerId` |
+| global | the bridge as a whole |
 
 Configured per dimension as `{ limit, windowMs, burst? }`. Exceeding it yields
 `RATE_LIMITED` + `retryAfterMs` + a `reason` naming the dimension.
@@ -930,13 +945,19 @@ Configured per dimension as `{ limit, windowMs, burst? }`. Exceeding it yields
 
 A budget over a longer period. `200 000 tokens/day`, or a currency budget per calendar day/month.
 
-Same four dimensions, measured in **tokens** and optionally currency. Exceeding it yields
+Same five dimensions, measured in **tokens** and optionally currency. Exceeding it yields
 `QUOTA_EXCEEDED` + `retryAfterMs` (the reset instant). Quota is checked **before** dispatch and
 reconciled **after** (actual usage may exceed a pre-flight estimate).
 
 Why the distinction matters: a rate-limited caller is going too fast and should slow down; a
 quota-exhausted caller is out of budget and should stop or ask a human. Merging them into one
 `429` hides a spending problem inside a throttling one.
+
+> **Stage 5 status.** Implemented in `@aibridge/governance`: `RateLimiter` (a sliding window over
+> the five dimensions, checked **before** dispatch — a refusal makes zero provider calls) and
+> `QuotaManager`, which **reserves** the policy amount before dispatch and settles the actual figure
+> after. Unknown usage settles at the conservative reservation, never at zero
+> ([`GOVERNANCE.md`](GOVERNANCE.md)).
 
 ### 15.3 The subject token
 
@@ -968,6 +989,13 @@ identity by AI Bridge, and **not** an email, a user id or a raw session token. I
 `estimatedCost` appears only when a price basis exists (§5.1). When usage itself is estimated,
 `warnings: [{ code: 'USAGE_ESTIMATED' }]` is set. An absent cost is **unknown**, never zero, and
 never rendered as "free".
+
+> **Stage 5 status.** The record is now written: `UsageLedgerPort` + `InMemoryUsageLedger`,
+> append-only, one `ProviderAttemptUsageRecord` per dispatch (plus one per skipped candidate) and
+> one `LogicalRequestUsageRecord` per logical request. Cost is estimated from a **pinned**, versioned
+> pricing table (`PricingTable` — the price in force at request start, so history never moves), and
+> `AiUsage.reasoningTokens` projects a reasoning token **count** only — reasoning content still
+> never crosses ([`USAGE_AND_COST.md`](USAGE_AND_COST.md)).
 
 ### 16.3 Privacy default
 
@@ -1077,6 +1105,11 @@ Nothing in the config is consumer-visible except through §5.2's safe projection
 
 Config reload is **atomic and validated-first**: a file that fails validation is rejected in
 full and the previous config stays live. Never a half-applied route table.
+
+**Stage 5 implements it** as `RuntimeConfigSnapshot` + `ConfigManager` (`config-manager.ts`):
+validate everything first, swap atomically, `rollback()` to the previous snapshot, and bind one
+snapshot per in-flight request — a reload during a call changes nothing for that call
+([`CONFIG_RELOAD.md`](CONFIG_RELOAD.md)).
 
 ---
 

@@ -77,6 +77,36 @@ Full rationale: [`ARCHITECTURE.md`](ARCHITECTURE.md). Capability semantics:
 > by contract tests (`tests/contracts/stream.test.ts`) instead of fixtures, because a fixture
 > document is a request or a response (`kind` is unchanged) and a stream is neither.
 
+> **Compatibility note — Stage 5 implementation (additive within major 1).** Stage 5 implemented
+> reliability, fallback and governance. Five additive changes were needed and are recorded here per
+> [`../AGENTS.md`](../AGENTS.md) §8. All five are **additive**: no frozen field changed meaning, no
+> value was removed or renamed, and every `FROZEN` fixture still parses unchanged. The affected
+> constants move `1.0` → `1.1` (§2), which is major-compatible: a `1.0` consumer is still accepted.
+>
+> 1. **`AiUsage.reasoningTokens?`** (§4.1) — a **count** only; reasoning content never crosses;
+>    absent = unknown, never 0.
+> 2. **One warning code** (§4.3): `RETRY_USED` — a bounded same-provider retry ran; additively
+>    ignorable like every warning.
+> 3. **Three error reasons** (§7): `QUOTA_CAPABILITY` (a capability-scoped quota), `QUOTA_PROVIDER`
+>    (a provider-scoped quota) and `COST_BUDGET_EXHAUSTED` (a cost budget). Classification
+>    (`code`/`stage`/`retryable`):
+>    `QUOTA_CAPABILITY` → `QUOTA_EXCEEDED`/`GOVERNANCE`/false,
+>    `QUOTA_PROVIDER` → `QUOTA_EXCEEDED`/`GOVERNANCE`/false,
+>    `COST_BUDGET_EXHAUSTED` → `QUOTA_EXCEEDED`/`GOVERNANCE`/false. `COST_BUDGET_EXHAUSTED` exists
+>    because `BUDGET_EXHAUSTED` is the **time** budget (`TIMEOUT`/`DEADLINE`) and mislabelling cost
+>    as time is semantic drift.
+> 4. **Two adapter-internal fields**, not a public contract: `ProviderRawError.dispatched?: boolean`
+>    (true = a response arrived, false = provably nothing left, absent = unknown) and
+>    `ProviderDescriptor.supportsReliableIdempotency?: boolean`. Together they make an unknown
+>    outcome safe to govern: it is never repeated on the same provider unless reliable idempotency
+>    is declared and real.
+> 5. **Version bumps** (§2): `AIBRIDGE_CONTRACT_VERSION`, `AIBRIDGE_RESPONSE_SCHEMA_VERSION` and
+>    `AIBRIDGE_ERROR_VERSION` move `1.0` → `1.1` — a minor bump inside major 1 for the additive
+>    items above. `AIBRIDGE_REQUEST_SCHEMA_VERSION` is unchanged.
+>
+> Fixture impact: one new **ILLUSTRATIVE** fixture
+> (`ai.text.generate.response.reliability.json`); every `FROZEN` fixture parses unchanged.
+
 ---
 
 ## 0. What is frozen, and what is not
@@ -132,13 +162,16 @@ Full rationale: [`ARCHITECTURE.md`](ARCHITECTURE.md). Capability semantics:
 ## 2. Version constants (frozen)
 
 ```ts
-export const AIBRIDGE_CONTRACT_VERSION        = '1.0';  // envelopes + error vocabulary
+export const AIBRIDGE_CONTRACT_VERSION        = '1.1';  // envelopes + error vocabulary
 export const AIBRIDGE_REQUEST_SCHEMA_VERSION  = '1.0';  // AiRequestEnvelope
-export const AIBRIDGE_RESPONSE_SCHEMA_VERSION = '1.0';  // AiResult
-export const AIBRIDGE_ERROR_VERSION           = '1.0';  // AiErrorCode
+export const AIBRIDGE_RESPONSE_SCHEMA_VERSION = '1.1';  // AiResult
+export const AIBRIDGE_ERROR_VERSION           = '1.1';  // AiErrorCode
 export const AIBRIDGE_FIELD_DIALECT           = 'aibridge.fields/v1';
 export const AIBRIDGE_PLUGIN_API_VERSION      = 1;
 ```
+
+The three `1.1` values are the additive Stage 5 bump (see the compatibility note above); comparison
+stays major-compatible, so a `1.0` consumer is still accepted.
 
 ### 2.1 Compatibility rule (frozen)
 

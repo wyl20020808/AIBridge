@@ -1,7 +1,7 @@
 # AI Bridge — Contract Reference (Stage 2–3)
 
 **Status:** implemented and tested. This document describes what `@aibridge/contracts`,
-`@aibridge/core`, `@aibridge/host-sdk`, `@aibridge/runtime` and
+`@aibridge/core`, `@aibridge/host-sdk`, `@aibridge/runtime`, `@aibridge/governance` and
 `@aibridge/provider-openai-compatible` actually export, and the rules the tests enforce
 mechanically.
 
@@ -55,10 +55,10 @@ Single source for every frozen version constant:
 
 ```ts
 PLUGIN_API_VERSION            = 1
-AIBRIDGE_CONTRACT_VERSION     = '1.0'
+AIBRIDGE_CONTRACT_VERSION     = '1.1'
 GENERIC_REQUEST_SCHEMA_VERSION = '1.0'
-AIBRIDGE_RESPONSE_SCHEMA_VERSION = '1.0'
-AIBRIDGE_ERROR_VERSION        = '1.0'
+AIBRIDGE_RESPONSE_SCHEMA_VERSION = '1.1'
+AIBRIDGE_ERROR_VERSION        = '1.1'
 STRUCTURED_OUTPUT_SCHEMA_VERSION = '1.0'
 STRUCTURED_OUTPUT_SCHEMA_MAJOR = 1
 PROVIDER_ADAPTER_API_VERSION  = 1        // internal, not a public contract
@@ -66,6 +66,9 @@ CAPABILITY_DESCRIPTOR_VERSION = '1.0'
 FIXTURE_SET_VERSION           = '1.0'
 AIBRIDGE_FIELD_DIALECT        = 'aibridge.fields/v1'
 ```
+
+The three `1.1` values are the additive Stage 5 bump (compatibility note in
+[`INTEGRATION_CONTRACT_V1.md`](INTEGRATION_CONTRACT_V1.md)); comparison stays major-compatible.
 
 `parseMajor(version)` and `checkMajorCompatibility(actual, expected)` implement the frozen rule:
 comparison is **major-compatible** (`1.0` accepts `1`, `1.0`, `1.0.3`); an unknown or higher major is
@@ -132,6 +135,13 @@ code, stage and retryability from it, so a reason and its classification cannot 
 every closed `ProviderCategory` exactly one home: `REASON_BY_PROVIDER_CATEGORY` is that table and
 `reasonForProviderCategory` reads it. Two adapters therefore cannot disagree about what `AUTH`
 means.
+
+**Stage 5 additive surface** (same compatibility note): three error reasons — `QUOTA_CAPABILITY`
+and `QUOTA_PROVIDER` (a quota scoped to a capability / a provider) and `COST_BUDGET_EXHAUSTED` (a
+cost budget — deliberately **not** `BUDGET_EXHAUSTED`, which is the **time** budget), all three
+`QUOTA_EXCEEDED`/`GOVERNANCE`/`false`. Plus one warning code, `RETRY_USED` (a bounded same-provider
+retry ran; additively ignorable like every warning), and `AiUsage.reasoningTokens` (a count only;
+reasoning content never crosses; absent = unknown, never 0).
 
 `FALLBACK_BY_CODE` / `fallbackEligibility` encode the frozen fallback rule: *if the failure is a
 property of the request or the content, do not spend another provider's money on it.*
@@ -495,6 +505,18 @@ provider prose never crosses).
 `execute`/`stream` **never throw**: a `FAILED` result (or a `FAILED` stream terminal) is the only
 failure channel.
 
+**Stage 5 additions.** `ExecutionCoordinator` (§19's policy layer composed) turns one logical
+request into its provider attempts (primary / retry / fallback / repair) and returns the terminal
+result plus `ReliabilityProvenance` and `GovernanceSummary` — surfaced as
+`AiRuntime.executeObserved`, while `AiRuntime.execute` keeps its Stage 3 signature and returns the
+result alone; `AiRuntime.getProviderHealth()` reports health diagnostics. `config-manager.ts` adds
+`RuntimeConfigSnapshot` + `ConfigManager` (validated-first atomic `reload`, `rollback`, one snapshot
+bound per in-flight request), `output.ts` shares output shaping + bounded repair, `routes.ts` adds
+`enumerateRouteCandidates`, and `fallback.ts` adds `validateFallbackChain` (cycle / duplicate-target
+/ impossible-target rejection) beside `nextFallback` — which gained a small conformance fix: a
+**configured** `RATE_LIMITED`/`QUOTA_EXCEEDED` chase is no longer vetoed by the retryable check,
+since the frozen §7.2 table allows a configured chase.
+
 ## 16. `@aibridge/provider-openai-compatible` (Stage 3)
 
 The **one** reference adapter — enough to prove the architecture, not a provider marketplace.
@@ -514,7 +536,7 @@ The **one** reference adapter — enough to prove the architecture, not a provid
 
 ## 17. Fixtures — `Docs/fixtures/fixture-set.v1/`
 
-Nine JSON documents, versioned `FIXTURE_SET_VERSION`. Six `FROZEN`, three `ILLUSTRATIVE`.
+Ten JSON documents, versioned `FIXTURE_SET_VERSION`. Six `FROZEN`, four `ILLUSTRATIVE`.
 `tests/fixtures/fixtures.test.ts` runs each through the repo's own parser and asserts the declared
 `expect` and `reason`:
 
@@ -545,3 +567,33 @@ contract change and follows [`../AGENTS.md`](../AGENTS.md) §8.
 
 CI (`.github/workflows/verify.yml`) runs `npm ci` then `npm run verify` on Linux and Windows against
 the pinned Node version.
+
+---
+
+## 19. `@aibridge/governance` (Stage 5)
+
+The host-neutral reliability and governance primitives the runtime composes. It depends only on
+`@aibridge/contracts` (the frozen vocabulary) and `@aibridge/host-sdk` (the `Clock` port): no
+provider, no host, no consumer. Every stateful piece is a port with an in-memory reference
+implementation — deliberately **no OJPlatform DB adapter**.
+
+| Export | Role |
+| --- | --- |
+| `fallback-policy.ts` — `decideFallback`, `resolveFallbackPolicy`, `fallbackOptionsOf`, `classifyFailure`, `breakerImpact` | reason-aware fallback policy over the closed code/reason/stage vocabulary (`FALLBACK_STOP_RULES`): a request/content failure never chases, provider throttling and provider-scoped quota chase only when configured, and the caller's own rate/quota/budget limits are never dodged. |
+| `retry-policy.ts` — `decideRetry`, `classifyRetryPhase`, `backoffDelayMs`, `MAX_SAME_PROVIDER_RETRIES` | bounded retry in three outcome phases (`BEFORE_DISPATCH` / `KNOWN_NOT_ACCEPTED` / `UNKNOWN_OUTCOME_AFTER_DISPATCH`, derived from `ProviderRawError.dispatched`); hard cap **1** same-provider retry; deterministic backoff (a projected `Retry-After` wins) through the `Sleeper`/`Clock` seams. |
+| `breaker.ts` — `CircuitBreaker`, `CircuitBreakerRegistry`, `resolveBreakerConfig` | `CLOSED → OPEN → HALF_OPEN` keyed `providerId` + `modelAlias`; only provider-transient failure counts, so one bad model never disables a provider's others. |
+| `health.ts` — `RuntimeHealthRegistry`, `HEALTH_STATES` | `HEALTHY / DEGRADED / OPEN_CIRCUIT / DISABLED / UNKNOWN` composed from observed calls, the breaker and the operator switch. Health is not capability. |
+| `idempotency.ts` — `IdempotencyRegistry`, `InMemoryIdempotencyStore`, `hashRequestFingerprint`, `idempotencyIdentityKey` | the frozen §10 semantics: replay with `IDEMPOTENT_REPLAY`, in-flight join, `IDEMPOTENCY_CONFLICT` on a different fingerprint (hashed before storage — a raw digest embeds the input); retention 15 min, capacity 10 000, LRU. |
+| `rate-limit.ts` — `RateLimiter`, `InMemoryRateLimitStore`, `rateLimitReason` | sliding window over five dimensions (`subject · callerPlugin · capability · provider · global`), atomic `tryConsume`; `RATE_LIMITED` + `retryAfterMs` before dispatch — a refusal makes zero provider calls. |
+| `quota.ts` — `QuotaManager`, `InMemoryQuotaStore`, `quotaReason`, `reservationAmount` | scopes × meters (`REQUESTS · TOKENS · ESTIMATED_COST`) × periods (`DAY · MONTH`); **reservations** before dispatch, settlement after; unknown usage settles at the conservative reservation, never zero. |
+| `cost.ts` — `PricingTable`, `estimateCost`, `aggregateUsage`, `UNKNOWN_COST` | versioned pricing records validated strictly and **pinned at request start**; known usage × pinned price, provider-reported cost wins; unknown cost is unknown, never 0. |
+| `budget.ts` — `BudgetTracker`, `checkRequestBudget` | per-request/day/month cost budget in the same `ESTIMATED_COST` buckets; refusal is `COST_BUDGET_EXHAUSTED` with zero dispatch (never `BUDGET_EXHAUSTED` — that one is the time budget). |
+| `usage-ledger.ts` — `UsageLedgerPort`, `InMemoryUsageLedger` | append-only, two record shapes: `LogicalRequestUsageRecord` and `ProviderAttemptUsageRecord`. No prompt, no response, no credential, no reasoning content. |
+| `observability.ts` — `MetricsSink`, `OperationalEventSink`, `InMemoryMetrics`, `RecordingOperationalEvents` | safe metrics over a closed low-cardinality label set and eleven metadata-only operational events. No request ids, no subjects, no content. |
+| `provenance.ts` — `ReliabilityProvenance`, `ProviderAttemptProvenance`, `GovernanceSummary`, `summarize`, `mergeCosts` | the per-attempt audit trail (operator-side) beside the result: what was tried, skipped and charged, and the governance totals for one logical request. |
+| `terminal.ts` — `selectTerminalError` | deterministic terminal error selection when every candidate failed — one stable error, not the loudest. |
+| `subject.ts` — `hashSubjectToken`, `safeSubjectRef` | subject hashing: a subject token appears in no store, only its hash. |
+
+State seams: `IdempotencyStorePort`, `RateLimitStorePort`, `QuotaStorePort`, `UsageLedgerPort` (and
+`ConfigSnapshotStorePort`, which lives beside `ConfigManager` in `@aibridge/runtime`) — each with an
+in-memory reference implementation. A durable, host-backed implementation is integration-stage work.

@@ -15,9 +15,9 @@ Stage 1 (this one) is **architecture only** — see [`PROJECT_STATUS.md`](PROJEC
 | 2 | **Generic AI contracts** | `@aibridge/contracts`, `@aibridge/core` skeleton, `@aibridge/host-sdk` ports + fakes, envelope validators, error model, fixture runner, portability + secret-leak checks | 1 |
 | 3 | **Provider runtime + OpenAI-compatible provider** | `@aibridge/runtime`, `@aibridge/provider-openai-compatible` + provider conformance kit + real-provider proof, streaming, ESLint | 2 |
 | 4 | **Provider suite & multi-provider qualification** | `@aibridge/provider-openai` (Responses), `@aibridge/provider-deepseek`, `@aibridge/provider-xiaomi-tokenplan`, relay hardening (SSRF), presets, model aliases, profile routing, fallback contract, provider config + diagnostics, live harness | 3 |
-| 5 | **Routing + config + secrets** | `AiRouter`, `ProviderConfig` / `ModelRouteConfig` / `CapabilityRouteConfig`, secret resolution, config validation + atomic reload | 4 |
-| 6 | **Reliability** | timeout budgets, bounded retry, fallback chains (applying the Stage 4 `nextFallback` contract automatically), **output repair**, cancellation, idempotency registry, provider disable (breaker-ready) | 5 |
-| 7 | **Usage + rate limits** | usage ledger, cost estimation, rate limits, quotas, observability | 6 |
+| 5 | **Reliability, Fallback & Governance** | ExecutionCoordinator, fallback/retry/repair, circuit breaker + health, idempotency, rate limit, quota, usage ledger + cost, budget, atomic config reload, observability | 4 |
+| 6 | **Reliability durability** | *(retry, fallback, repair, idempotency and the breaker were delivered in Stage 5 — see the renumbering note)* — durable idempotency/usage stores as host adapters, clustered breaker state, stream fallback before the first delta | 5 |
+| 7 | **Usage + cost durability** | *(ledger, cost, rate, quota and observability were delivered in Stage 5 — see the renumbering note)* — durable quota/rate counters, pricing-history retention, operator reporting exports | 6 |
 | 8 | **Specialized capability packs** | `@aibridge/capabilities`: `education.idea.evaluate`, `education.hint.generate`, `learning.summary.generate`, `code.debug.analyze`, `code.explain`; `CapabilityRegistry`; discovery | 7 |
 | 9 | **OJPlatform integration** | `@aibridge/adapter-ojplatform`, host manifest projection, capability broker gap closure **in the host** (separate approved change) | 8 |
 | 10 | **AlgoQuest real-AI E2E** | Idea Lab against a real provider through the bridge; rubric-fallback parity under real failures | 9 |
@@ -33,6 +33,12 @@ reaches the widest set of vendors — but only after it is **probed**, never ass
 > extraction + validation landed early as runtime glue in Stage 3; the remaining piece — bounded
 > output **repair** — moved into Stage 6 reliability, where `ARCHITECTURE.md` §10.4 already places
 > it. Everything else in the track is unchanged.
+
+> **Stage renumbering note.** Stage 5 absorbed the reliability / cost-governance material previously
+> scheduled for later rows: retry, fallback, repair, idempotency and the breaker from the old
+> "Stage 6" plan; the usage ledger, cost, rate limits, quotas and observability from the old
+> "Stage 7" plan. The remaining work for later stages is durable storage, host integration,
+> capability packs and UI.
 
 ---
 
@@ -235,6 +241,108 @@ Stage 4 is complete. See
 
 ---
 
+## Stage 5 checklist — "Reliability, Fallback & Governance"
+
+Stage 5 is complete. See
+[`reports/STAGE_5_RELIABILITY_GOVERNANCE_REPORT.md`](reports/STAGE_5_RELIABILITY_GOVERNANCE_REPORT.md).
+
+### In scope
+
+- [x] `ExecutionCoordinator` (`@aibridge/runtime`) — one logical request becomes provider attempts
+      and one terminal result **plus** `ReliabilityProvenance` and `GovernanceSummary`
+      (`AiRuntime.executeObserved`; `AiRuntime.execute` keeps its Stage 3 shape);
+      `AiRuntime.getProviderHealth()` for diagnostics.
+- [x] Logical request / attempt model — `LogicalRequestUsageRecord` vs `ProviderAttemptUsageRecord`
+      (primary / retry / fallback / repair, with `parentAttemptId` for repair children); every
+      provider paid for is accounted, dropped candidates recorded `SKIPPED` with a reason.
+- [x] Fallback policy + automatic fallback — `decideFallback` applied to the chain through
+      `nextFallback`; never on request/content failures; provider throttling and provider-scoped
+      quota chased only when configured.
+- [x] Overall deadline — one budget shared by the chain; each attempt gets
+      `min(providerMs, remaining − reserve)`; a chain never costs `n × budget`.
+- [x] Retry policy + unknown-outcome safety + backoff — three outcome phases derived from
+      `ProviderRawError.dispatched`; max 1 same-provider retry; an unknown outcome repeated only
+      under real `supportsReliableIdempotency`; deterministic backoff through `Clock`/`Sleeper`.
+- [x] Circuit breaker — `CLOSED/OPEN/HALF_OPEN` keyed `providerId` + `modelAlias`; only
+      provider-transient failures count.
+- [x] Provider health — `RuntimeHealthRegistry`
+      (`HEALTHY/DEGRADED/OPEN_CIRCUIT/DISABLED/UNKNOWN`); health ≠ capability.
+- [x] Idempotency + fingerprint conflict + concurrent suppression — `IdempotencyRegistry.gate`
+      (hashed fingerprint, in-flight join, `IDEMPOTENCY_CONFLICT`, 15 min / 10 000 LRU).
+- [x] Rate limit — sliding window over five dimensions (`subject · callerPlugin · capability ·
+      provider · global`), checked before dispatch.
+- [x] Quota + reservation — `QuotaManager.reserve`/`settle`; unknown usage settles at the
+      conservative reservation, never at zero.
+- [x] Usage ledger + reasoning token usage — append-only attempt + logical-request records;
+      `AiUsage.reasoningTokens` projects a count only (reasoning content still never crosses).
+- [x] Pricing records + cost estimation + request budget — versioned pricing pinned at request
+      start, unknown cost ≠ 0, `COST_BUDGET_EXHAUSTED` refuses with zero dispatch.
+- [x] Output repair — one bounded repair (frozen §5.3), same provider and model, recorded as a
+      child attempt and fully charged.
+- [x] Config snapshot + atomic reload + rollback — `RuntimeConfigSnapshot` + `ConfigManager`;
+      validated-first, atomic swap, one snapshot bound per in-flight request.
+- [x] Observability + operational events + health diagnostics — safe metrics over a closed label
+      set, eleven metadata-only operational events, health diagnostics.
+- [x] Kill switch + cancellation interaction — switches respected mid-chain (skip and continue on
+      the survivors); cancellation stops retry, fallback and repair and is terminal.
+- [x] Governance ordering — idempotency gate → rate limit → quota reservation → cost budget before
+      dispatch; settlement, ledger and provenance after. One fixed order, tested.
+- [x] Property tests (Phase 63), fuzz (Phase 64) and chaos (Phase 65) —
+      `tests/properties/reliability.test.ts`.
+- [x] Security gates — governance stores mechanically scanned for secrets, prompts, learner text,
+      output and reasoning content (`tests/security/governance-privacy.test.ts`); the secret,
+      coupling and dependency gates unchanged.
+- [x] Portability — 9 packages packed, offline-installed, typechecked (no `node` types),
+      declaration-hygiene scanned and smoke-tested, incl. a packed-runtime governance smoke.
+- [x] Docs — [`RELIABILITY.md`](RELIABILITY.md), [`GOVERNANCE.md`](GOVERNANCE.md),
+      [`USAGE_AND_COST.md`](USAGE_AND_COST.md), [`CONFIG_RELOAD.md`](CONFIG_RELOAD.md), plus the
+      Stage 5 compatibility note in
+      [`INTEGRATION_CONTRACT_V1.md`](INTEGRATION_CONTRACT_V1.md).
+- [x] `npm run verify` green end to end (473 tests).
+
+### Out of scope for Stage 5 (explicitly)
+
+- new providers (the four Stage 4 paths are unchanged);
+- AlgoQuest logic or business prompts ([`AGENTS.md`](../AGENTS.md) §9);
+- any UI (never until the gate is lifted — [`AGENTS.md`](../AGENTS.md) §6);
+- OJPlatform production integration (Stage 9);
+- payment / billing **processing** — cost is accounting, not money movement;
+- auto-recharge;
+- adaptive / ML / cost-driven routing — cost is governance data and must not choose providers;
+- dashboards of any kind;
+- OJPlatform DB migrations;
+- Redis or any distributed store — the store ports have in-memory references only.
+
+### Exit gate — `AIBRIDGE_STAGE_5 = PASS` requires
+
+- deterministic automatic fallback over the chain, never on request or content failures;
+- bounded retry (max one same-provider retry, deterministic backoff), with an unknown outcome
+  repeated only under reliable idempotency;
+- the overall deadline preserved across the chain — no fallback starts below the minimum viable
+  budget;
+- no silent capability downgrade — a fallback target must satisfy the original requirement set;
+- circuit breaker and provider/model health (`providerId`+`modelAlias` keying,
+  `HEALTHY`…`UNKNOWN`);
+- idempotency per frozen §10 — faithful replay, concurrent duplicate suppression,
+  `IDEMPOTENCY_CONFLICT`;
+- rate limit, quota and quota reservations enforced before dispatch, and fallback cannot bypass a
+  consumer quota;
+- usage ledger with every provider attempt accounted and reasoning tokens projected as a count only;
+- cost estimation from pinned pricing records, historical pricing stable, unknown cost ≠ 0;
+- request budget refuses with `COST_BUDGET_EXHAUSTED` and zero dispatch;
+- bounded output repair with its usage fully accounted;
+- atomic config reload — an invalid config preserves the old snapshot, one in-flight request uses
+  one config snapshot, rollback works;
+- observability (metrics, operational events, health diagnostics) with no raw prompt, response or
+  secret in metrics or the ledger;
+- cancellation stops retry/fallback/repair; kill switches respected;
+- property tests, fuzz and chaos green;
+- strict typecheck, lint, gates, tests, build and portability green;
+- Stage 1–4 suites show no regressions;
+- OJPlatform and AlgoQuest untouched; working tree clean; report in [`reports/`](reports/).
+
+---
+
 ## AlgoQuest parallel plan
 
 Detail and contract mapping: [`INTEGRATION_CONTRACT_V1.md`](INTEGRATION_CONTRACT_V1.md) §12–15.
@@ -279,8 +387,8 @@ AlgoQuest must not add `@aibridge/*` to `@algoquest/contracts`, `@algoquest/core
 | Requirement | Where it belongs | Why it is not now |
 | --- | --- | --- |
 | **Admin configuration UI** (providers, models, keys, routing, quotas) | Stage 8+ product decision | UI gate closed ([`AGENTS.md`](../AGENTS.md) §6). Config is file-based meanwhile. |
-| Durable idempotency + usage storage | Stage 7 | in-memory is bounded and acceptable for V1 ([`ARCHITECTURE.md`](ARCHITECTURE.md) §19). |
-| Circuit breaker | Stage 6 or later | architecture is breaker-ready now ([`ARCHITECTURE.md`](ARCHITECTURE.md) §10.5); the state machine is not worth its cost yet. |
+| Durable idempotency + usage storage | Stage 6/7 durability slice | in-memory is bounded and acceptable for V1 ([`ARCHITECTURE.md`](ARCHITECTURE.md) §19); the ports exist since Stage 5 (`IdempotencyStorePort`, `UsageLedgerPort`). |
+| Clustered circuit breaker state | later | Stage 5 ships the in-process breaker ([`ARCHITECTURE.md`](ARCHITECTURE.md) §10.5); sharing breaker state across processes is the future item. |
 | **Streaming (`ai.chat.stream`)** | not a capability | [`CAPABILITIES.md`](CAPABILITIES.md) §4: streaming is a delivery concern. The delivery exists since Stage 3 (`AiStreamEvent` on `ai.text.generate`); a capability id for it would freeze a turn model nobody needs. |
 | Multi-turn chat | V1.1 | [`CAPABILITIES.md`](CAPABILITIES.md) §1.2. |
 | JSON Schema output dialect | later | the field table covers current needs and stays dependency-free. |
