@@ -1,0 +1,28 @@
+{
+  "name": "@aibridge/runtime",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "AI Bridge runtime: contract + capability validation, provider resolution, trusted secret resolution, request execution, timeout, cancellation, response normalization and generic error propagation. Depends on @aibridge/contracts, @aibridge/core and @aibridge/host-sdk.",
+  "license": "UNLICENSED",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "sideEffects": false,
+  "scripts": {
+    "build": "tsc -b"
+  },
+  "dependencies": {
+    "@aibridge/contracts": "0.1.0",
+    "@aibridge/core": "0.1.0",
+    "@aibridge/host-sdk": "0.1.0"
+  }
+}
