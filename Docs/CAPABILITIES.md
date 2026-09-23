@@ -175,9 +175,10 @@ AI Bridge.
 
 ---
 
-## 4. Streaming — evaluated, out of V1
+## 4. Streaming — evaluated, out of V1 as a capability
 
-**Decision: `ai.structured.generate` is non-streaming in V1. Text/chat streaming is V1.1.**
+**Decision: `ai.structured.generate` is non-streaming in V1. Streaming is a delivery concern, not a
+capability — there is no `ai.chat.stream` capability and there will not be one.**
 
 Rationale: AlgoQuest's Idea evaluation needs a *complete structured result* — a classification, a
 confidence, a concept list, exactly one next question. A token stream of a partial judgement is
@@ -185,7 +186,15 @@ not merely less useful, it is dangerous: a learner could read "your idea is off 
 sentence that qualifies it arrives.
 
 Streaming also multiplies the contract: partial JSON, incremental validation, backpressure,
-cancellation mid-token. Nothing in V1 needs it.
+cancellation mid-token.
+
+> **Stage 3 status.** The *delivery* concern is now implemented as the minimal additive
+> `AiStreamEvent` sequence (`STARTED → TEXT_DELTA* → COMPLETED | FAILED`, see
+> [`INTEGRATION_CONTRACT_V1.md`](INTEGRATION_CONTRACT_V1.md) compatibility note): `ai.text.generate`
+> can be delivered incrementally through the runtime, with deterministic order, finish, usage and
+> error behaviour. None of the above changed: structured generation is still returned complete or
+> not at all, and `ai.chat.stream` is still not a capability — `ai.chat.generate` (multi-turn)
+> remains deferred V1.1.
 
 ---
 

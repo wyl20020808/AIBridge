@@ -13,7 +13,7 @@ Stage 1 (this one) is **architecture only** — see [`PROJECT_STATUS.md`](PROJEC
 | --- | --- | --- | --- |
 | 1 | **Plugin architecture** | boundaries, capability model, provider boundaries, security, routing, configuration, portability, versioning, this roadmap | — |
 | 2 | **Generic AI contracts** | `@aibridge/contracts`, `@aibridge/core` skeleton, `@aibridge/host-sdk` ports + fakes, envelope validators, error model, fixture runner, portability + secret-leak checks | 1 |
-| 3 | **OpenAI-compatible provider** | `@aibridge/provider-openai-compatible` + provider conformance kit + **capability probe** / provider profile | 2 |
+| 3 | **Provider runtime + OpenAI-compatible provider** | `@aibridge/runtime`, `@aibridge/provider-openai-compatible` + provider conformance kit + real-provider proof, streaming, ESLint | 2 |
 | 4 | **Structured generation** | extraction, validation, repair, no-partial-results — `ai.structured.generate` end to end against a fake and against the Stage 3 adapter | 3 |
 | 5 | **Routing + config + secrets** | `AiRouter`, `ProviderConfig` / `ModelRouteConfig` / `CapabilityRouteConfig`, secret resolution, config validation + atomic reload | 4 |
 | 6 | **Reliability** | timeout budgets, bounded retry, fallback chains, output repair policy, cancellation, idempotency registry, provider disable (breaker-ready) | 5 |
@@ -41,6 +41,7 @@ Stage 2 is complete. See
 > typecheck already cover what a minimal ESLint config would have caught in a three-package
 > workspace; adding a lint dependency before there is a provider adapter would add churn without a
 > failing case to prevent. It is recorded here rather than silently skipped.
+> **Paid down in Stage 3:** `npm run lint` exists and runs inside `npm run verify`.
 
 ### In scope
 
@@ -76,6 +77,74 @@ Stage 2 is complete. See
 - [x] Fixture runner: every file in [`fixtures/`](fixtures/) yields its declared `expect` and
       `reason`.
 - [x] Contract tests for every area in [`TESTING.md`](TESTING.md) §3.1.
+
+---
+
+## Stage 3 checklist — "Provider Runtime & Reference Adapter"
+
+Stage 3 is complete. See
+[`reports/STAGE_3_PROVIDER_RUNTIME_REPORT.md`](reports/STAGE_3_PROVIDER_RUNTIME_REPORT.md).
+
+### In scope
+
+- [x] `@aibridge/runtime` — the formal runtime layer: contract validation (the
+      `parseConsumerAiRequest` security boundary + `composeAiRequest`), capability validation
+      (registry, versions, permission defence in depth, governance, policy selection, schema
+      ownership, `inputAllowList`), provider resolution (`resolveRoute`, per-model feature and
+      requirement checks that fail **locally**), trusted secret resolution (`credentialRef` → host
+      secret port → `bindCredentials`), execution, the frozen three-deadline timeout arithmetic,
+      terminal idempotent cancellation, response normalization and generic error propagation.
+- [x] `@aibridge/provider-openai-compatible` — **exactly one** reference adapter. All
+      provider-specific detail (payload, headers, base URL, authentication, response shape, error
+      body, SSE framing) stays inside it; its transport seam is self-declared so no platform type
+      escapes into a published signature.
+- [x] Contract compatibility: **additive only** — three error reasons (`PROVIDER_AUTH_FAILED`,
+      `PROVIDER_REQUEST_REJECTED`, `PROVIDER_UNAVAILABLE`) and the minimal stream-event contract
+      (`AiStreamEvent`), both recorded as compatibility notes in
+      [`INTEGRATION_CONTRACT_V1.md`](INTEGRATION_CONTRACT_V1.md). No breaking change; the nine
+      fixtures parse unchanged.
+- [x] Capabilities: the Stage 2 capability/descriptor contract drives pre-dispatch validation;
+      an unsatisfiable requirement is `NO_ROUTE`, never a quiet downgrade.
+- [x] Errors: provider/network failures map to the existing twelve-code model
+      ([`CONTRACTS.md`](CONTRACTS.md) §4) — invalid request, auth failure, permission, model not
+      found, rate limit, provider unavailable, timeout, cancelled, malformed provider response,
+      internal error. Provider raw error bodies never cross.
+- [x] Streaming: `Provider stream → Adapter → Generic stream events`, deterministic order /
+      finish / usage / error behaviour with tests; `ai.text.generate` only (a streamed partial
+      judgement is dangerous — [`CAPABILITIES.md`](CAPABILITIES.md) §4).
+- [x] Secrets: the credential exists only in the trusted runtime boundary and is proven absent
+      from generic requests/responses, error serialization, logs, snapshots and package output.
+      `screenAiInput` and the security gates do not regress.
+- [x] Deterministic fake-provider tests (no real provider in CI): success, malformed response,
+      401/403, 404 model, 429, 5xx, timeout, cancellation, stream success, stream error,
+      capability rejection.
+- [x] Opt-in live smoke (`npm run test:live-provider`) — `SKIP` without credentials; executed
+      manually against a real provider for the exit gate and recorded in the report.
+- [x] ESLint (`npm run lint`) inside `npm run verify` — the Stage 2 deferral is paid.
+- [x] Portability + CI: the two new packages enter the pack → offline install → typecheck →
+      declaration-hygiene → smoke gate; Linux and Windows CI unchanged and green.
+
+### Out of scope for Stage 3 (explicitly)
+
+- UI, provider settings, chat UI, agent UI (never, until the gate is lifted —
+  [`AGENTS.md`](../AGENTS.md) §6);
+- a provider marketplace, many-provider support, OAuth, billing, cloud sync, a telemetry platform;
+- routing/fallback configuration, retry, repair, idempotency, rate limits, quotas (Stages 4–7);
+- specialized capability packs (Stage 8), host integration (Stage 9);
+- wiring the real provider into any production user flow — the live smoke is a **test path only**.
+
+### Exit gate — `AIBRIDGE_STAGE_3 = PASS` requires
+
+- a real provider answers one generic request end to end through runtime + adapter (recorded
+  manually, credential-free output asserted);
+- generic error mapping covers the full table and provider prose never penetrates;
+- streaming order/finish/usage/error semantics are deterministic and tested;
+- timeout and cancellation are terminal and tested, including late-answer discard;
+- secret leakage regression tests exist and the secret gate is shown to fail when deliberately
+  broken (negative test);
+- fake-provider tests cover the full case list without any network;
+- the new packages pass the portability gate; `npm run lint` and `npm run verify` are green;
+- no UI, no production runtime change, working tree clean, report in `Docs/reports/`.
 
 ### Out of scope for Stage 2 (explicitly)
 
@@ -143,7 +212,7 @@ AlgoQuest must not add `@aibridge/*` to `@algoquest/contracts`, `@algoquest/core
 | **Admin configuration UI** (providers, models, keys, routing, quotas) | Stage 8+ product decision | UI gate closed ([`AGENTS.md`](../AGENTS.md) §6). Config is file-based meanwhile. |
 | Durable idempotency + usage storage | Stage 7 | in-memory is bounded and acceptable for V1 ([`ARCHITECTURE.md`](ARCHITECTURE.md) §19). |
 | Circuit breaker | Stage 6 or later | architecture is breaker-ready now ([`ARCHITECTURE.md`](ARCHITECTURE.md) §10.5); the state machine is not worth its cost yet. |
-| Streaming (`ai.chat.stream`) | V1.1 | [`CAPABILITIES.md`](CAPABILITIES.md) §4. |
+| **Streaming (`ai.chat.stream`)** | not a capability | [`CAPABILITIES.md`](CAPABILITIES.md) §4: streaming is a delivery concern. The delivery exists since Stage 3 (`AiStreamEvent` on `ai.text.generate`); a capability id for it would freeze a turn model nobody needs. |
 | Multi-turn chat | V1.1 | [`CAPABILITIES.md`](CAPABILITIES.md) §1.2. |
 | JSON Schema output dialect | later | the field table covers current needs and stays dependency-free. |
 | Provider adapters as separate repositories / plugins | later | [`ARCHITECTURE.md`](ARCHITECTURE.md) §7.4. |

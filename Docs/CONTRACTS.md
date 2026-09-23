@@ -1,8 +1,9 @@
-# AI Bridge — Contract Reference (Stage 2)
+# AI Bridge — Contract Reference (Stage 2–3)
 
 **Status:** implemented and tested. This document describes what `@aibridge/contracts`,
-`@aibridge/core` and `@aibridge/host-sdk` actually export in Stage 2, and the rules the tests
-enforce mechanically.
+`@aibridge/core`, `@aibridge/host-sdk`, `@aibridge/runtime` and
+`@aibridge/provider-openai-compatible` actually export, and the rules the tests enforce
+mechanically.
 
 It is a *reference*, not a second source of truth. The frozen parallel contract remains
 [`INTEGRATION_CONTRACT_V1.md`](INTEGRATION_CONTRACT_V1.md); where this document and that one differ,
@@ -23,13 +24,20 @@ Nothing here connects a provider, reads a key, makes a network call, or runs a U
         ▲
         │
 @aibridge/host-sdk    depends on contracts + core
+        ▲
+        │
+@aibridge/runtime     depends on contracts + core + host-sdk   (the trusted execution layer)
+
+@aibridge/provider-openai-compatible   depends on contracts only (implements the adapter port)
 ```
 
 | Package | Owns | Must not |
 | --- | --- | --- |
-| `@aibridge/contracts` | versions, envelopes, errors, strict parsers, capability/descriptor types, structured schema dialect | import anything (zero runtime deps), touch DOM/Node globals/network/filesystem/`process.env` |
+| `@aibridge/contracts` | versions, envelopes, errors, strict parsers, capability/descriptor types, structured schema dialect, the stream-event contract, the two prompt-channel renderers | import anything (zero runtime deps), touch DOM/Node globals/network/filesystem/`process.env` |
 | `@aibridge/core` | input safety boundary, structural output safety, capability registry + directory, governance kill switches, provider/model registries | own a concrete provider, host or consumer |
 | `@aibridge/host-sdk` | host port interfaces, in-memory + mutant fakes, scripted provider, host/provider conformance kits | name a host, import an SDK, make a network call |
+| `@aibridge/runtime` | contract + capability validation, provider resolution, trusted secret resolution, execution, timeout, cancellation, response normalization, generic error propagation | own a provider, a host port implementation, or any provider wire shape |
+| `@aibridge/provider-openai-compatible` | the reference adapter: `/chat/completions` payload, headers, base URL, authentication header, response shape, error body, SSE framing | leak a vendor type, a raw error body or a credential across the port |
 
 All three are ESM, `module`/`moduleResolution: NodeNext`, strict TypeScript, and import each other
 with explicit `.js` extensions. `scripts/check-adapter-coupling.mjs` and
@@ -116,6 +124,15 @@ code, stage and retryability from it, so a reason and its classification cannot 
 `RETRYABLE_BY_CODE` supplies the per-code default; the reason default overrides it; an explicit
 `retryable` on the built error wins. `retryable` is authoritative for the caller.
 
+**Stage 3 additive reasons** (compatibility note in
+[`INTEGRATION_CONTRACT_V1.md`](INTEGRATION_CONTRACT_V1.md)): `PROVIDER_AUTH_FAILED`
+(`PROVIDER_ERROR`/`PROVIDER`/false), `PROVIDER_REQUEST_REJECTED`
+(`INVALID_REQUEST`/`PROVIDER`/false) and `PROVIDER_UNAVAILABLE`
+(`PROVIDER_ERROR`/`PROVIDER`/true). Together with the five Stage 1 provider reasons they give
+every closed `ProviderCategory` exactly one home: `REASON_BY_PROVIDER_CATEGORY` is that table and
+`reasonForProviderCategory` reads it. Two adapters therefore cannot disagree about what `AUTH`
+means.
+
 `FALLBACK_BY_CODE` / `fallbackEligibility` encode the frozen fallback rule: *if the failure is a
 property of the request or the content, do not spend another provider's money on it.*
 
@@ -196,6 +213,23 @@ security boundary stays `parseConsumerAiRequest`.
 
 Closed allow-list of exactly four keys: `locale`, `traceId`, `surface`, `correlationId`. An unknown
 key is `METADATA_NOT_ALLOWED`; the serialized form is capped at 512 bytes.
+
+### 5.5 The generic capability payloads — `input.ts`
+
+The frozen input shapes of the two V1 primitives (INTEGRATION_CONTRACT_V1.md §5.1, §5.5), parsed
+with the same closed-key discipline: `ContextValue` (`name`, `label`, `type`, `untrusted`, `value`,
+optional `maxLength`), `StructuredGenerateInput` and `TextGenerateInput` (which may carry
+`maxOutputTokens`). The instruction channel is bounded (`INSTRUCTIONS_MAX_LENGTH = 8 000`); bundle
+names are unique and lowerCamelCase. Stage 3 added these parsers so the runtime can reject an
+unknown input key before it reaches a provider — the shapes themselves did not change.
+
+### 5.6 The two prompt channels — `prompt.ts`
+
+`renderOutputFormatInstruction` and `renderContextBlock` are the **one** implementation of the
+instruction/data split (ARCHITECTURE.md §11.2), shared by the runtime (which renders the
+output-format instruction) and every adapter (which renders the data channel). An `untrusted` value
+is fenced as delimited data — `<<<aibridge-data … <<<aibridge-data` — and never concatenated into
+an instruction string, so prompt injection is *structurally* unable to rewrite policy.
 
 ---
 
@@ -281,6 +315,29 @@ type AiResult<TOutput = unknown> = {
 - **`finishReason`** — closed: `STOP | LENGTH | CONTENT_FILTER | UNKNOWN`.
 - **`warnings`** — the frozen eight codes (`AI_WARNING_CODES`), additive and ignorable.
 
+### 8.1 Streaming — `stream.ts` (Stage 3, additive)
+
+Streaming is a **delivery concern, not a capability** ([`CAPABILITIES.md`](CAPABILITIES.md) §4), so
+the stream contract is a delivery variant of `AiResult`, not a second architecture. The frozen
+sequence, enforced by `validateAiStreamSequence` and tested:
+
+```text
+STARTED  →  TEXT_DELTA*  →  (COMPLETED | FAILED)
+```
+
+- `STARTED` echoes identity exactly once and always first;
+- `TEXT_DELTA` carries a non-empty increment, only before the terminal;
+- exactly one terminal event, always last — `COMPLETED` carries `text` (the concatenation of the
+  deltas) plus the same closing facts `AiResult` carries (`usage`, `finishReason`,
+  `providerMetadata`, `latencyMs`, `warnings`); `FAILED` carries a normalized `AiError` plus the
+  same closing facts;
+- a stream that ends without a terminal is invalid — the runtime always terminates one, including
+  on error, timeout and cancellation.
+
+`parseAiStreamEvent` / `parseAiStreamEvents` apply the closed-key discipline to each event and the
+sequence rules to the whole document. Provider-side, `ProviderStreamEvent` (`TEXT_DELTA` | `FINISH`
+| `ERROR`) is the adapter's mapped output — never a vendor SSE frame.
+
 ---
 
 ## 9. Profiles and requirements — `profile.ts`, `requirements.ts`
@@ -315,11 +372,21 @@ topology starts depending on it.
 
 ## 11. Providers — `provider.ts`
 
-Descriptions only. No provider is implemented, no vendor SDK type appears anywhere.
-`AiProviderAdapter` is the port Stage 3 will implement (`generateText`, `generateStructured`,
-optional `probe`/`shutdown`). `ProviderRequest` is AI Bridge's own shape, not a vendor
-"chat completions" object; `modelRef` is operator-side and never crosses back to a consumer.
-`ProviderRawError.rawMessage` is operator-only; core reads only `category`.
+Descriptions and the adapter port. The **reference implementation** is
+`@aibridge/provider-openai-compatible` (§16); no vendor SDK type appears anywhere.
+`AiProviderAdapter` (`generateText`, `generateStructured`, optional `streamText`, optional
+`bindCredentials`, optional `probe`/`shutdown`) is the port every adapter implements.
+`ProviderRequest` is AI Bridge's own shape, not a vendor "chat completions" object; `modelRef` is
+operator-side and never crosses back to a consumer. `ProviderRawError.rawMessage` is operator-only;
+the runtime reads only `category` (plus the optional mapped `reason`) and normalizes through
+`REASON_META`.
+
+**Stage 3 additive port surface** (internal — `PROVIDER_ADAPTER_API_VERSION` is not a public
+contract): `streamText?` (the provider-side stream), `bindCredentials?` (the one trusted door a
+credential value may enter through), `ProviderRequest.cancellation?` (so an adapter can abort
+outbound work) and `ProviderRawError.reason` / `retryAfterMs` (mapped facts, never prose).
+`ProviderCallError` is how an adapter reports a mapped failure; its `message` is fixed and
+sanitized because a thrown value may land in a stack trace.
 
 Feature support is a property of the **model**, not the provider (`ModelDescriptor.features`).
 
@@ -380,22 +447,72 @@ can be shown to *fail* on a bad host.
 
 ### 14.3 Scripted provider — `scripted-provider.ts`
 
-`ScriptedProviderAdapter` with `textStep` / `structuredStep` / `rejectStep` / `hangStep`, so tests
-drive the pipeline deterministically without a network.
+`ScriptedProviderAdapter` with `textStep` / `structuredStep` / `rejectStep` / `hangStep` /
+`streamStep` / `streamRejectStep`, so tests drive the pipeline deterministically without a
+network — non-streaming and streaming alike. `bindCredentials` records the **handle** and drops the
+value: this adapter physically cannot leak a secret it was given.
 
 ### 14.4 Conformance kits
 
 `runHostConformance(host)` returns a `ConformanceReport` and **never throws**: identity,
 deny-by-default permissions, opaque-or-null subject token, secret redaction (with an optional
 synthetic secret), usage round-trip, usage-no-content, kill-switch validity, finite clock,
-loadable config. `runProviderConformance(adapter)` runs the provider cases against the scripted
-adapter; two `TESTING.md` §1.1 cases (no vendor type escapes, no secret escapes) are enforced
-statically by the coupling gate, strict typecheck and the response-projection test rather than at
-runtime.
+loadable config. `runProviderConformance(subject)` runs the adapter cases against a
+`ConformanceTarget` — an adapter plus an `enqueue(behavior)` seam — so the same neutral behaviours
+are injected through the scripted queue (`scriptedConformanceTarget`) or through a real adapter's
+fake transport. Nine cases: the Stage 2 five plus `error.mapped-category`, `stream.round-trip`,
+`stream.error-terminal` and `secret.no-escape` ([`TESTING.md`](TESTING.md) §1.1).
 
 ---
 
-## 15. Fixtures — `Docs/fixtures/fixture-set.v1/`
+## 15. `@aibridge/runtime` (Stage 3)
+
+The trusted execution layer — the one path every call takes:
+
+```text
+Consumer → Generic AI Contract → AiRuntime → Provider Adapter → Real Provider → normalized Generic Result
+```
+
+`AiRuntime` owns, in order: **contract validation** (`parseConsumerAiRequest` is the security
+boundary; `composeAiRequest` joins the host-bound `TrustedDispatchContext`), **capability
+validation** (registry lookup, `CAPABILITY_UNKNOWN` vs `CAPABILITY_VERSION_UNSUPPORTED`,
+permission defence in depth, governance, policy selection, schema ownership, `inputAllowList`,
+payload parsing), **provider resolution** (`resolveRoute`: profile route chain + per-model feature
+and requirement checks — everything a provider cannot serve fails **locally**, before dispatch),
+**trusted secret resolution** (`credentialRef` → the host's `SecretStorePort` → the adapter's
+`bindCredentials`, at registration only), **execution** with the frozen three-deadline arithmetic
+and terminal idempotent cancellation, **response normalization** (`AiResult` with the closed
+projection) and **generic error propagation** (`normalizeProviderError` / `normalizeThrown` —
+provider prose never crosses).
+
+`stream()` is the same pipeline with incremental delivery (`AiStreamEvent`), offered for
+`ai.text.generate` only. Other exports: `normalizeProviderError`, `normalizeThrown`,
+`validationFailureToAiError`, `providerTimeoutError`, `budgetExhaustedError`,
+`cancelledByCallerError`/`cancelledByHostError`, `classifyModel`, `resolveRoute`,
+`unmetRequirements`, and the operator-only channel (`OperatorLogSink`, `RecordingOperatorLog`,
+`redactOperatorDetail` — credential-stripped, PII-stripped, truncated at the sink).
+
+`execute`/`stream` **never throw**: a `FAILED` result (or a `FAILED` stream terminal) is the only
+failure channel.
+
+## 16. `@aibridge/provider-openai-compatible` (Stage 3)
+
+The **one** reference adapter — enough to prove the architecture, not a provider marketplace.
+
+- `OpenAiCompatibleAdapter` implements `AiProviderAdapter` over `/chat/completions` (non-streaming
+  JSON and SSE streaming). Everything vendor-shaped — payload, headers, base URL, `Authorization`,
+  response shape, error body, `finish_reason` spellings, token field names, `[DONE]` framing —
+  lives in this package (`adapter.ts`, `http.ts`).
+- The transport seam (`FetchLike` and friends) is **self-declared**: no `Response`, `RequestInit`,
+  `AbortSignal` or vendor type appears in the published `.d.ts`, enforced by the declaration-hygiene
+  scan in `scripts/check-portability.mjs`.
+- `classifyHttpFailure` maps a vendor error body to a closed `category` + generic `reason` (vendor
+  *type* first, status second) with `rawMessage` kept operator-only;
+  `mapFinishReason`/`mapUsage` map the response, never fabricating an absent fact.
+- Credential custody: `bindCredentials` stores the value in a private field excluded from
+  `JSON.stringify`/`toString()`; it appears only in the outbound `Authorization` header.
+
+## 17. Fixtures — `Docs/fixtures/fixture-set.v1/`
 
 Nine JSON documents, versioned `FIXTURE_SET_VERSION`. Six `FROZEN`, three `ILLUSTRATIVE`.
 `tests/fixtures/fixtures.test.ts` runs each through the repo's own parser and asserts the declared
@@ -412,17 +529,19 @@ contract change and follows [`../AGENTS.md`](../AGENTS.md) §8.
 
 ---
 
-## 16. Gates and verification
+## 18. Gates and verification
 
 | Command | Enforces |
 | --- | --- |
 | `npm run typecheck` | strict build (`tsc -b`) + test typecheck (`tsconfig.test.json`) |
+| `npm run lint` | ESLint (Stage 3 — the Stage 2 deferral is paid): residual bugs, never style churn |
 | `npm run check:coupling` | no `@ojplatform/*`, `@algoquest/*` or cross-repo source import |
 | `npm run check:secrets` | no credential pattern in any committed file (one named fixture allow-listed) |
 | `npm run check:deps` | contracts has zero runtime deps; the package arrows are one-way |
 | `npm run test` | the full suite, including fixtures, security boundaries and property invariants |
-| `npm run check:portability` | build → `npm pack` → offline install into an isolated project → typecheck (no `node` types) → runtime smoke |
+| `npm run check:portability` | build → `npm pack` → offline install into an isolated project → typecheck (no `node` types) → declaration-hygiene scan → runtime smoke (incl. one full runtime + adapter round trip) |
 | `npm run verify` | all of the above, in order |
+| `npm run test:live-provider` | **opt-in only** — one real round trip against a real provider, `SKIP` without credentials. Never part of `verify` and never in PR CI. |
 
 CI (`.github/workflows/verify.yml`) runs `npm ci` then `npm run verify` on Linux and Windows against
 the pinned Node version.

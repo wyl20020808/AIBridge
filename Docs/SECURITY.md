@@ -7,15 +7,27 @@ Scope note: AI Bridge is **not** a DLP product and does not claim to be. What it
 of mechanical, testable boundaries — and the tests to prove them
 ([`TESTING.md`](TESTING.md) §2).
 
-> **Stage 2 status.** Several boundaries in this document are now enforced in code rather than
+> **Stage 3 status.** Several boundaries in this document are now enforced in code rather than
 > described. The consumer/trusted split is `parseConsumerAiRequest` (which rejects `callerPluginId`,
 > `subjectToken` and `permissions` with `TRUSTED_FIELD_IN_CONSUMER_REQUEST`) plus the
 > host-injected `TrustedDispatchContext` (§4). Input safety is `screenAiInput` in `@aibridge/core`
 > (§3): size → secret rejection → PII redaction. `scripts/check-no-secret-leak.mjs` scans every
 > committed file for credential shapes, with exactly one allow-listed synthetic fixture. The
 > response projection that excludes provider internals is a closed key set with an absence test
-> (§6). What is **not** yet implemented is listed in [`PROJECT_STATUS.md`](PROJECT_STATUS.md) — no
-> provider, key, network call or secret resolution runs in Stage 2.
+> (§6). What is **not** yet implemented is listed in [`PROJECT_STATUS.md`](PROJECT_STATUS.md).
+>
+> **Stage 3 adds the trusted secret boundary in code.** A credential exists only inside the runtime
+> boundary: a `credentialRef` (`secret://…`) is resolved through the host's `SecretStorePort` at
+> provider-registration time and handed to the adapter's `bindCredentials` over one trusted channel
+> (`TrustedCredentials`). The value is held in a private field, excluded from `JSON.stringify` and
+> `toString()`, placed only in the outbound `Authorization` header, and never present in a
+> `ProviderRequest`, an `AiResult`, an `AiError`, a stream event, a snapshot or the operator log —
+> each of which is asserted by the secret-leakage regression tests
+> ([`TESTING.md`](TESTING.md) §2.1), including the worst case of a provider error body that echoes
+> the key back. The operator channel (§6.2) now exists (`OperatorLogSink`) and its detail is
+> credential-stripped, PII-stripped and truncated at the sink. The gate is proven to fail when
+> deliberately broken (a planted credential-shaped file makes `check-no-secret-leak.mjs` exit 1 —
+> asserted as a test and re-run manually for the Stage 3 report).
 
 ---
 

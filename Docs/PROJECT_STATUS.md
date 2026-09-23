@@ -9,7 +9,7 @@ Per-stage acceptance reports are in [`reports/`](reports/).
 | --- | --- | --- |
 | 1 | Plugin architecture (boundaries, capability model, provider boundaries, security, routing, configuration, portability, versioning) | **PASS** |
 | 2 | Generic AI contracts | **PASS** |
-| 3 | OpenAI-compatible provider | not started |
+| 3 | Provider runtime & reference adapter | **PASS** |
 | 4 | Structured generation | not started |
 | 5 | Routing + config + secrets | not started |
 | 6 | Reliability | not started |
@@ -60,8 +60,22 @@ references):
   a portability gate (`npm run check:portability`), and CI
   (`.github/workflows/verify.yml`).
 
-**Not present, deliberately:** any provider implementation, any API key, any network call, any
-UI, any host modification. `entry` is still `null`.
+**Not present, deliberately:** any UI, any host modification, any provider in a production user
+flow. `entry` is still `null`.
+
+Stage 3 added two more portable packages and paid down the ESLint deferral:
+
+- `packages/runtime` (`@aibridge/runtime`) — the trusted execution layer: contract + capability
+  validation, provider resolution, trusted secret resolution (`credentialRef` → host secret port →
+  `bindCredentials`), execution with the frozen three-deadline timeout arithmetic and terminal
+  cancellation, response normalization, generic error propagation, and the operator-only redacted
+  diagnostic channel. `execute`/`stream` never throw.
+- `packages/provider-openai-compatible` (`@aibridge/provider-openai-compatible`) — the **one**
+  reference adapter: `/chat/completions` payload, headers, base URL, authentication, response and
+  error-body translation, SSE streaming. Every provider-specific fact stays inside it, and its
+  transport seam is self-declared (declaration-hygiene gate).
+- `npm run lint` (ESLint) inside `npm run verify`; `npm run test:live-provider` as an **opt-in**
+  real-provider smoke (`SKIP` without credentials, never in PR CI).
 
 ## Stage 1 exit gate
 
@@ -117,16 +131,47 @@ UI, any host modification. `entry` is still `null`.
 | Working tree clean | `git status` clean at the Stage 2 commit |
 | Full report | [`reports/STAGE_2_GENERIC_AI_CONTRACTS_REPORT.md`](reports/STAGE_2_GENERIC_AI_CONTRACTS_REPORT.md) |
 
+## Stage 3 exit gate
+
+`AIBRIDGE_STAGE_3 = PASS`
+
+| Requirement | Evidence |
+| --- | --- |
+| Generic contract validation | `AiRuntime.#prepare` — `parseConsumerAiRequest` + `composeAiRequest`; `tests/runtime/pipeline.test.ts` |
+| Capability validation | registry/version/policy/schema-ownership/`inputAllowList`/requirement checks, all pre-dispatch; `tests/runtime/pipeline.test.ts` |
+| Trusted secret boundary | `credentialRef` → `SecretStorePort` → `bindCredentials`; `tests/security/runtime-secrets.test.ts` |
+| Reference adapter | [`provider-openai-compatible`](../packages/provider-openai-compatible) — one adapter only |
+| Request translation | generic request → `/chat/completions` payload + headers; `tests/provider-openai-compatible/adapter.test.ts` |
+| Response normalization | finish reason / usage / projection mapping; adapter + `tests/runtime/pipeline.test.ts` |
+| Generic error mapping | full table incl. 401/403, 404 model, 429, 5xx, malformed, internal; `tests/runtime/errors.test.ts` |
+| Streaming | `STARTED → TEXT_DELTA* → COMPLETED\|FAILED`, deterministic; `tests/runtime/streaming.test.ts`, `tests/contracts/stream.test.ts` |
+| Timeout | `BUDGET_EXHAUSTED` vs `PROVIDER_TIMEOUT`; outbound call abandoned; `tests/runtime/timeout-cancellation.test.ts` |
+| Cancellation | pre-dispatch no-charge, in-flight terminal, late answer discarded, outbound abort; same file |
+| Secret leakage regression | result/error/stream/request/log/snapshot surfaces; `tests/security/runtime-secrets.test.ts` |
+| Negative security test | planted credential file makes `check-no-secret-leak.mjs` exit 1 (asserted as a test and re-run manually) |
+| Fake provider tests | success, malformed, 401/403, 404 model, 429, 5xx, timeout, cancellation, stream success, stream error, capability rejection — no network |
+| Provider conformance | 9 cases against two adapters via two injection seams; `tests/host-sdk/provider-conformance.test.ts` |
+| Package portability | `npm run check:portability` — 5 packages packed, offline-installed, typechecked (no `node` types), declaration-hygiene scanned, smoke-tested |
+| Linux CI compatibility | `.github/workflows/verify.yml` (ubuntu-latest) |
+| Windows CI compatibility | `.github/workflows/verify.yml` (windows-latest) |
+| ESLint | `npm run lint` in `verify` |
+| `npm run verify` | green end to end |
+| Live provider smoke | `npm run test:live-provider` executed **manually against a real provider** — recorded in [`reports/STAGE_3_PROVIDER_RUNTIME_REPORT.md`](reports/STAGE_3_PROVIDER_RUNTIME_REPORT.md) |
+| No UI changes | UI gate untouched |
+| No production runtime change | `plugin.manifest.json` unchanged, `entry: null`, `deploy/` untouched |
+| Working tree clean | `git status` clean at the Stage 3 commits |
+| Full report | [`reports/STAGE_3_PROVIDER_RUNTIME_REPORT.md`](reports/STAGE_3_PROVIDER_RUNTIME_REPORT.md) |
+
 ## Stage gates — current state
 
 | Gate | State |
 | --- | --- |
-| Real provider connected | **NO** |
-| API key configured | **NO** |
+| Real provider connected | **TEST PATH ONLY** — one opt-in live smoke (`npm run test:live-provider`); no provider in any production user flow |
+| API key configured | **NEVER COMMITTED** — resolved at runtime from the host secret store / environment through the trusted boundary |
 | UI | **NOT ALLOWED** ([`AGENTS.md`](../AGENTS.md) §6) |
 | Production runtime changed | **NO** |
 | Host modified | **NO** |
-| `packages/` created | **YES** — `contracts`, `core`, `host-sdk` (code + tests) |
+| `packages/` created | **YES** — `contracts`, `core`, `host-sdk`, `runtime`, `provider-openai-compatible` (code + tests) |
 
 ## Status update rules
 

@@ -1,7 +1,5 @@
 # AI Bridge — Test Strategy
 
-Stage 1 designs the test system. Nothing is executed yet: there is no implementation to test.
-
 The list below is not a wish list. Every item names a failure it catches, and every item is a
 **release gate** for the stage that introduces the code it covers.
 
@@ -26,23 +24,28 @@ The list below is not a wish list. Every item names a failure it catches, and ev
 ### 1.1 Provider conformance kit
 
 A reusable suite in `@aibridge/host-sdk` that every `AiProviderAdapter` must pass unchanged.
-An adapter that needs an exemption has a design problem.
+An adapter that needs an exemption has a design problem. **Stage 3 implements it** and runs the
+same cases against two adapters through two different injection seams — the scripted queue and the
+fake HTTP transport (`ConformanceTarget.enqueue(behavior)`), so "every adapter behaves identically
+at the AI Bridge boundary" is a checked property (`tests/host-sdk/provider-conformance.test.ts`).
 
-Cases, minimum:
+Cases, minimum (✓ = in the kit; ↗ = enforced where the layer lives):
 
-| Case | Asserts |
-| --- | --- |
-| text happy path | `text` non-empty, `finishReason` in the closed set |
-| structured happy path | payload extracted and validated |
-| structured malformed | `INVALID_RESPONSE`, never a partial object |
-| structured off-schema | `SCHEMA_MISMATCH` with issue paths |
-| deadline exceeded | `TIMEOUT` within `budget ± tolerance` |
-| cancellation | `CANCELLED` is terminal even if the provider later answers |
-| error mapping | a synthetic vendor error yields exactly the mapped `code` + `providerCategory` |
-| usage absent | `usage: {}` + `USAGE_ESTIMATED` where the bridge estimates |
-| size caps | oversized output ⇒ `OUTPUT_TOO_LARGE` |
-| **no vendor type escapes** | every exported signature is free of vendor types |
-| **no secret escapes** | with a synthetic key configured, the key appears in no output |
+| Case | Asserts | Where |
+| --- | --- | --- |
+| text happy path | `text` non-empty, `finishReason` in the closed set | ✓ `text.happy-path` |
+| structured happy path | payload extracted and validated | ✓ `structured.happy-path` + `tests/runtime/pipeline.test.ts` |
+| structured malformed | `INVALID_RESPONSE`, never a partial object | ↗ `tests/runtime/errors.test.ts` + `pipeline.test.ts` |
+| structured off-schema | `SCHEMA_MISMATCH` with issue paths | ↗ `tests/runtime/pipeline.test.ts` |
+| deadline exceeded | `TIMEOUT` within `budget ± tolerance` | ↗ `tests/runtime/timeout-cancellation.test.ts` |
+| cancellation | `CANCELLED` is terminal even if the provider later answers | ↗ `tests/runtime/timeout-cancellation.test.ts` |
+| error mapping | a synthetic vendor error yields exactly the mapped `code` + `providerCategory` | ✓ `error.mapped-category` + ↗ `tests/runtime/errors.test.ts` |
+| usage absent | `usage: {}` + `USAGE_ESTIMATED` where the bridge estimates | ✓ `usage.shape` |
+| size caps | oversized output ⇒ `OUTPUT_TOO_LARGE` | ↗ `tests/runtime/pipeline.test.ts` |
+| stream round trip | deltas then exactly one `FINISH` with usage + closed finish reason | ✓ `stream.round-trip` + `tests/runtime/streaming.test.ts` |
+| stream error terminal | a mid-stream failure closes with exactly one `ERROR` | ✓ `stream.error-terminal` + `tests/runtime/streaming.test.ts` |
+| **no vendor type escapes** | every exported signature is free of vendor types | ↗ declaration-hygiene scan in `scripts/check-portability.mjs` + strict typecheck |
+| **no secret escapes** | with a synthetic key configured, the key appears in no output | ✓ `secret.no-escape` + `tests/security/runtime-secrets.test.ts` |
 
 Modelled on AlgoQuest's `host-sdk` Conformance Kit idea (mutant-killing suites), adapted here
 for adapters rather than host providers.
@@ -63,6 +66,9 @@ These must fail the build. "Reviewed by a human" is not a security control.
 | log capture test | with a synthetic key configured, the key appears in **no** captured log line at any level |
 | browser-bundle test | the built client bundle contains no provider credential and no `apiKeyRef` resolution |
 | consumer-request test | a consumer-visible request/response round trip never contains a credential |
+| runtime secret regression (Stage 3) | with a synthetic key bound through the trusted secret port, the key appears in **no** of: `AiResult`, `AiError`, stream events, `ProviderRequest`, snapshots, operator-log entries (including a provider error body that echoes the key back), `JSON.stringify(runtime)`, `JSON.stringify(adapter)` |
+| **negative gate test** (Stage 3) | a planted credential-shaped file does **not** make `check-no-secret-leak.mjs` fail — the test plants one, asserts exit ≠ 0 and the named pattern, and removes it (`tests/security/runtime-secrets.test.ts`) |
+| leaky-adapter mutant (Stage 3) | a mutant adapter that serializes its credential is **not** detected by the same assertions — proven by making the mutant leak and watching the assertion catch it |
 
 **A synthetic key is always used.** A test that uses a real key is itself a finding.
 

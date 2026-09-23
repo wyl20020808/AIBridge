@@ -17,35 +17,42 @@ Consumer plugin
       └─ provider adapter C
 ```
 
-## Current status — Stage 2
+## Current status — Stage 3
 
-**Generic AI contracts implemented, tested and portable. No provider connected.**
+**Provider runtime and one reference adapter proven against a real provider. No UI. No production
+change.**
 
 | | |
 | --- | --- |
-| Real provider connected | **NO** |
-| API key configured | **NO** |
-| Runtime code shipped | **YES** — three dependency-free contract packages |
-| UI | **NOT ALLOWED in this stage** |
+| Real provider connected | **TEST PATH ONLY** — one opt-in live smoke, recorded in the report |
+| API key configured | **NEVER COMMITTED** — resolved through the trusted secret boundary at runtime |
+| Runtime code shipped | **YES** — five dependency-free packages |
+| UI | **NOT ALLOWED** |
 | Production runtime changed | **NO** |
 
-Stage 1 produced architecture, contracts and boundaries. Stage 2 turned them into code:
-`@aibridge/contracts` (zero runtime deps), `@aibridge/core` (safety, registry, governance) and
-`@aibridge/host-sdk` (ports, fakes, conformance kits), plus five gates and CI. See
-[`Docs/CONTRACTS.md`](Docs/CONTRACTS.md) for the exported surface,
+Stage 1 produced architecture. Stage 2 produced the generic contracts. Stage 3 drove them through a
+real AI provider: `@aibridge/runtime` (validation, provider resolution, trusted secret resolution,
+execution, timeout, cancellation, normalization, generic errors) and
+`@aibridge/provider-openai-compatible` (the one reference adapter), plus the streaming contract,
+deterministic fake-provider tests, secret-leakage regression tests, ESLint, and one recorded real
+round trip. See [`Docs/CONTRACTS.md`](Docs/CONTRACTS.md) for the exported surface,
 [`Docs/PROJECT_STATUS.md`](Docs/PROJECT_STATUS.md) for the stage gates and
-[`Docs/reports/STAGE_2_GENERIC_AI_CONTRACTS_REPORT.md`](Docs/reports/STAGE_2_GENERIC_AI_CONTRACTS_REPORT.md)
+[`Docs/reports/STAGE_3_PROVIDER_RUNTIME_REPORT.md`](Docs/reports/STAGE_3_PROVIDER_RUNTIME_REPORT.md)
 for the acceptance report.
 
 ## Packages
 
 | Package | Role | Runtime deps |
 | --- | --- | --- |
-| `@aibridge/contracts` | versions, envelopes, error model, strict parsers, capability/descriptor types, `aibridge.fields/v1` | **zero** |
+| `@aibridge/contracts` | versions, envelopes, error model, strict parsers, capability/descriptor types, `aibridge.fields/v1`, stream events, prompt channels | **zero** |
 | `@aibridge/core` | input safety, structural output safety, capability registry + directory, kill switches, provider/model registries | `@aibridge/contracts` |
 | `@aibridge/host-sdk` | host ports, in-memory + mutant fakes, scripted provider, host/provider conformance kits | `@aibridge/contracts`, `@aibridge/core` |
+| `@aibridge/runtime` | contract + capability validation, provider resolution, trusted secret resolution, execution, timeout, cancellation, normalization, generic errors | `@aibridge/contracts`, `@aibridge/core`, `@aibridge/host-sdk` |
+| `@aibridge/provider-openai-compatible` | the reference provider adapter — all provider wire shape stays inside | `@aibridge/contracts` |
 
-Verify locally with `npm run verify` (strict typecheck → gates → tests → build → portability).
+Verify locally with `npm run verify` (strict typecheck → lint → gates → tests → build →
+portability). Run one real provider round trip, when credentials exist, with
+`npm run test:live-provider`.
 
 ## Documents
 

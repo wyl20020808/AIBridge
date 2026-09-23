@@ -44,6 +44,39 @@ Full rationale: [`ARCHITECTURE.md`](ARCHITECTURE.md). Capability semantics:
 > Fixture impact: none. The nine fixtures already express these rules (the `secret-input` and
 > `unknown-metadata` fixtures are the same rejections, now named by the reasons above).
 
+> **Compatibility note — Stage 3 implementation (additive within major 1).** Stage 3 drove the
+> contracts through a real provider via the runtime and the reference adapter. Two additions were
+> needed and are recorded here per [`../AGENTS.md`](../AGENTS.md) §8. Both are **additive**: no
+> frozen field changed meaning, no value was removed or renamed, and every `FROZEN` fixture still
+> parses unchanged. The contract stays `1.0`, following the Stage 2 precedent (no versioned
+> consumer exists yet).
+>
+> 1. **Three error reasons** (§7): `PROVIDER_AUTH_FAILED` (a provider rejecting its configured
+>    credential), `PROVIDER_REQUEST_REJECTED` (a provider rejecting the composed request) and
+>    `PROVIDER_UNAVAILABLE` (an upstream outage or transport failure). They exist so that every
+>    value of the frozen `details.providerCategory` set maps to **exactly one** reason — without
+>    them a 401 and a 429 would have to share a reason, and "our key is broken" would surface as a
+>    consumer bug. Classification (`code`/`stage`/`retryable`):
+>    `PROVIDER_AUTH_FAILED` → `PROVIDER_ERROR`/`PROVIDER`/false,
+>    `PROVIDER_REQUEST_REJECTED` → `INVALID_REQUEST`/`PROVIDER`/false,
+>    `PROVIDER_UNAVAILABLE` → `PROVIDER_ERROR`/`PROVIDER`/true. The reason set was always closed
+>    and always minor-extensible (`ARCHITECTURE.md` §6.2).
+> 2. **Streaming, as a delivery concern** — a minimal additive stream-event contract:
+>    `AiStreamEvent` with the frozen sequence `STARTED → TEXT_DELTA* → (COMPLETED | FAILED)`,
+>    validated by `validateAiStreamSequence`. Terminal events carry exactly the closing facts a
+>    `AiResult` carries (`usage`, `finishReason`, `providerMetadata`, `latencyMs`, `warnings`) and
+>    `COMPLETED.text` is the concatenation of the deltas. `ai.text.generate` may be delivered this
+>    way; `ai.structured.generate` remains **non-streaming** (§5 rationale unchanged — a streamed
+>    partial judgement is dangerous). `CapabilityRequirements.streaming` (§3.2) keeps its frozen V1
+>    semantics **unchanged** for non-streaming delivery (`true` ⇒ `NO_ROUTE`, never a quiet
+>    downgrade); incremental delivery is selected by calling the stream entry point, where the same
+>    requirement is validated against the resolved route. Nothing about the request envelope, the
+>    response envelope or the error model changed.
+>
+> Fixture impact: none — the nine fixtures parse unchanged. The stream sequence rules are covered
+> by contract tests (`tests/contracts/stream.test.ts`) instead of fixtures, because a fixture
+> document is a request or a response (`kind` is unchanged) and a stream is neither.
+
 ---
 
 ## 0. What is frozen, and what is not
@@ -435,7 +468,7 @@ export type AiError = {
   readonly stage: 'ENVELOPE' | 'PERMISSION' | 'INPUT_SAFETY' | 'ROUTING' | 'PROVIDER'
                | 'EXTRACTION' | 'VALIDATION' | 'POLICY' | 'DEADLINE' | 'GOVERNANCE' | 'CANCELLATION'
                | 'INTERNAL';   // INTERNAL is additive, Stage 2 — see the compatibility note
-  readonly reason?: AiErrorReason;   // closed set — ARCHITECTURE.md §6.2, plus the Stage 2 additions
+  readonly reason?: AiErrorReason;   // closed set — ARCHITECTURE.md §6.2, plus the Stage 2 and Stage 3 additions
   readonly details?: Readonly<Record<string, string | number | boolean>>;
 };
 ```
