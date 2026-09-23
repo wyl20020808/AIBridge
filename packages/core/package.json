@@ -1,0 +1,26 @@
+{
+  "name": "@aibridge/core",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "AI Bridge core primitives: input safety, output structural safety, capability registry, capability directory, kill switches, provider/model registries. Depends only on @aibridge/contracts.",
+  "license": "UNLICENSED",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "sideEffects": false,
+  "scripts": {
+    "build": "tsc -b"
+  },
+  "dependencies": {
+    "@aibridge/contracts": "0.1.0"
+  }
+}
