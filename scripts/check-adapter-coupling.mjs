@@ -96,7 +96,13 @@ function scanManifest(relativePath) {
 }
 
 scanSourceTree('packages');
-for (const packageDir of ['packages/contracts', 'packages/core', 'packages/host-sdk']) {
+for (const packageDir of [
+  'packages/contracts',
+  'packages/core',
+  'packages/host-sdk',
+  'packages/runtime',
+  'packages/provider-openai-compatible',
+]) {
   scanManifest(`${packageDir}/package.json`);
 }
 scanManifest('package.json');

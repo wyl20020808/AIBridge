@@ -16,18 +16,23 @@
     "clean": "node scripts/clean.mjs",
     "typecheck": "tsc -b --pretty false && tsc -p tsconfig.test.json --noEmit --pretty false",
     "build": "tsc -b --pretty false",
+    "lint": "eslint .",
     "test": "vitest run",
+    "test:live-provider": "npm run build --silent && node scripts/live-provider-smoke.mjs",
     "gates": "npm run check:coupling && npm run check:secrets && npm run check:deps",
     "check:coupling": "node scripts/check-adapter-coupling.mjs",
     "check:secrets": "node scripts/check-no-secret-leak.mjs",
     "check:deps": "node scripts/check-runtime-deps.mjs",
     "check:fixtures": "vitest run tests/fixtures",
     "check:portability": "node scripts/check-portability.mjs",
-    "verify": "npm run typecheck && npm run gates && npm run test && npm run build && npm run check:portability"
+    "verify": "npm run typecheck && npm run lint && npm run gates && npm run test && npm run build && npm run check:portability"
   },
   "devDependencies": {
     "@types/node": "22.20.4",
+    "eslint": "9.39.1",
+    "globals": "16.5.0",
     "typescript": "5.9.3",
+    "typescript-eslint": "8.46.2",
     "vitest": "3.2.7"
   }
 }

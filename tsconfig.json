@@ -3,6 +3,8 @@
   "references": [
     { "path": "packages/contracts" },
     { "path": "packages/core" },
-    { "path": "packages/host-sdk" }
+    { "path": "packages/host-sdk" },
+    { "path": "packages/runtime" },
+    { "path": "packages/provider-openai-compatible" }
   ]
 }

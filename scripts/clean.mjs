@@ -11,6 +11,8 @@ const targets = [
   join(root, 'packages', 'contracts', 'dist'),
   join(root, 'packages', 'core', 'dist'),
   join(root, 'packages', 'host-sdk', 'dist'),
+  join(root, 'packages', 'runtime', 'dist'),
+  join(root, 'packages', 'provider-openai-compatible', 'dist'),
   join(root, 'tmp'),
 ];
 

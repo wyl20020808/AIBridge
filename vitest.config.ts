@@ -13,6 +13,8 @@ export default defineConfig({
       '@aibridge/contracts': resolvePackage('./packages/contracts/src/index.ts'),
       '@aibridge/core': resolvePackage('./packages/core/src/index.ts'),
       '@aibridge/host-sdk': resolvePackage('./packages/host-sdk/src/index.ts'),
+      '@aibridge/runtime': resolvePackage('./packages/runtime/src/index.ts'),
+      '@aibridge/provider-openai-compatible': resolvePackage('./packages/provider-openai-compatible/src/index.ts'),
     },
   },
   test: {
