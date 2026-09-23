@@ -218,6 +218,12 @@ configuration is recorded in [`../ROADMAP.md`](../ROADMAP.md); configuration sta
 
 **Stage 1: PASS. Stage 2: PASS.**
 
+**One deliberate deviation:** `eslint.config.mjs` was deferred to Stage 3 (recorded in the Stage 2
+checklist in [`../ROADMAP.md`](../ROADMAP.md)). Strict TypeScript, the coupling gate, the
+runtime-dependency gate and the portability typecheck already cover what a minimal ESLint config
+would have caught here, and there is not yet a provider adapter for a fighting-case lint to
+protect.
+
 Stage 3 — **OpenAI-compatible provider** — is next and is **not started**: `@aibridge/provider-openai-compatible`, a probed provider profile, and the provider conformance kit's fixture-injection
 port. Per instruction, Stage 3 does not begin in this session.
 

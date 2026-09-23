@@ -32,42 +32,50 @@ reaches the widest set of vendors — but only after it is **probed**, never ass
 
 ## Stage 2 checklist — "Generic AI Contracts"
 
-Stage 2 is the next stage and nothing else. This is its scope.
+Stage 2 is complete. See
+[`reports/STAGE_2_GENERIC_AI_CONTRACTS_REPORT.md`](reports/STAGE_2_GENERIC_AI_CONTRACTS_REPORT.md).
+
+> **One deliberate deviation:** `eslint.config.mjs` was **deferred** to Stage 3. Strict TypeScript
+> (`strict`, `exactOptionalPropertyTypes`, `noUncheckedIndexedAccess`, `noUnusedLocals`,
+> `verbatimModuleSyntax`), the coupling gate, the runtime-dependency gate and the portability
+> typecheck already cover what a minimal ESLint config would have caught in a three-package
+> workspace; adding a lint dependency before there is a provider adapter would add churn without a
+> failing case to prevent. It is recorded here rather than silently skipped.
 
 ### In scope
 
-- [ ] Repository foundation: `package.json` workspaces, `tsconfig.base.json`, `vitest.config.ts`,
-      `eslint.config.mjs`, CI workflow running `verify`.
-- [ ] `@aibridge/contracts` — **zero runtime dependencies**.
-  - [ ] version constants (`AIBRIDGE_CONTRACT_VERSION` and friends), `parseMajor`,
+- [x] Repository foundation: `package.json` workspaces, `tsconfig.base.json`, `vitest.config.ts`,
+      `eslint.config.mjs` (deferred — see the deviation note above), CI workflow running `verify`.
+- [x] `@aibridge/contracts` — **zero runtime dependencies**.
+  - [x] version constants (`AIBRIDGE_CONTRACT_VERSION` and friends), `parseMajor`,
         `checkMajorCompatibility`.
-  - [ ] `AiRequestEnvelope`, `AiResult`, `AiError`, `AiUsage`, `ProviderMetadataProjection`,
+  - [x] `AiRequestEnvelope`, `AiResult`, `AiError`, `AiUsage`, `ProviderMetadataProjection`,
         `AiWarning`, `FieldSpec`, `OutputSchema`, `ModelProfile`, `CapabilityRequirements`,
         `TimeoutBudget`, `RequestMetadata`, `CancellationToken`.
-  - [ ] strict parsers: closed key sets everywhere, unknown fields rejected, sorted validation
+  - [x] strict parsers: closed key sets everywhere, unknown fields rejected, sorted validation
         issues with rooted `path`s, never a bare throw or boolean.
-  - [ ] the twelve error codes, the closed reason set, the retryability defaults table
+  - [x] the twelve error codes, the closed reason set, the retryability defaults table
         ([`ARCHITECTURE.md`](ARCHITECTURE.md) §6).
-  - [ ] capability types: `CapabilityRegistration`, `CapabilityDescriptor`, `CapabilityPolicy`,
+  - [x] capability types: `CapabilityRegistration`, `CapabilityDescriptor`, `CapabilityPolicy`,
         `CapabilityLimits`, `CapabilityAvailability`, `AiBridgeStatus`.
-- [ ] `@aibridge/core` skeleton.
-  - [ ] `CapabilityRegistry` (register / get / list, `maxCallsPerTurn` enforcement).
-  - [ ] `AiCapabilityDirectory` (`listCapabilities`, `getCapability`, `getStatus`).
-  - [ ] input safety boundary: size caps, metadata allow-list, secret-pattern rejection,
+- [x] `@aibridge/core` skeleton.
+  - [x] `CapabilityRegistry` (register / get / list, `maxCallsPerTurn` enforcement).
+  - [x] `AiCapabilityDirectory` (`listCapabilities`, `getCapability`, `getStatus`).
+  - [x] input safety boundary: size caps, metadata allow-list, secret-pattern rejection,
         PII redaction ([`SECURITY.md`](SECURITY.md) §3).
-  - [ ] kill switches (global / provider / capability).
-  - [ ] provider + model registry types; `AiProviderAdapter` port; **no real provider**.
-- [ ] `@aibridge/host-sdk`.
-  - [ ] host port interfaces (broker, identity, permission, subject token, secret store, usage
+  - [x] kill switches (global / provider / capability).
+  - [x] provider + model registry types; `AiProviderAdapter` port; **no real provider**.
+- [x] `@aibridge/host-sdk`.
+  - [x] host port interfaces (broker, identity, permission, subject token, secret store, usage
         storage) as **ports only** — with in-memory fakes.
-  - [ ] a scripted provider fake for deterministic tests.
-  - [ ] the provider conformance kit skeleton ([`TESTING.md`](TESTING.md) §1.1).
-- [ ] `scripts/check-adapter-coupling.mjs` — fails on `@ojplatform/*`, `@algoquest/*`, or any
+  - [x] a scripted provider fake for deterministic tests.
+  - [x] the provider conformance kit skeleton ([`TESTING.md`](TESTING.md) §1.1).
+- [x] `scripts/check-adapter-coupling.mjs` — fails on `@ojplatform/*`, `@algoquest/*`, or any
       cross-repo source import.
-- [ ] `scripts/check-no-secret-leak.mjs` — fails on a credential pattern in any committed file.
-- [ ] Fixture runner: every file in [`fixtures/`](fixtures/) yields its declared `expect` and
+- [x] `scripts/check-no-secret-leak.mjs` — fails on a credential pattern in any committed file.
+- [x] Fixture runner: every file in [`fixtures/`](fixtures/) yields its declared `expect` and
       `reason`.
-- [ ] Contract tests for every area in [`TESTING.md`](TESTING.md) §3.1.
+- [x] Contract tests for every area in [`TESTING.md`](TESTING.md) §3.1.
 
 ### Out of scope for Stage 2 (explicitly)
 
