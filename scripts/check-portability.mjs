@@ -22,7 +22,16 @@ const work = join(root, 'tmp', 'portability');
 const tarballDir = join(work, 'tarballs');
 const projectDir = join(work, 'project');
 
-const PACKAGE_DIRS = ['contracts', 'core', 'host-sdk', 'runtime', 'provider-openai-compatible'];
+const PACKAGE_DIRS = [
+  'contracts',
+  'core',
+  'host-sdk',
+  'runtime',
+  'provider-openai-compatible',
+  'provider-openai',
+  'provider-deepseek',
+  'provider-xiaomi-tokenplan',
+];
 
 /**
  * Declaration-hygiene scan: an exported signature must never reference a platform or vendor type.

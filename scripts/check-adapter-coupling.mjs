@@ -102,6 +102,9 @@ for (const packageDir of [
   'packages/host-sdk',
   'packages/runtime',
   'packages/provider-openai-compatible',
+  'packages/provider-openai',
+  'packages/provider-deepseek',
+  'packages/provider-xiaomi-tokenplan',
 ]) {
   scanManifest(`${packageDir}/package.json`);
 }

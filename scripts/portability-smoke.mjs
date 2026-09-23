@@ -21,8 +21,9 @@ import {
   runHostConformance,
   runProviderConformance,
 } from '@aibridge/host-sdk';
-import { AiRuntime } from '@aibridge/runtime';
+import { AiRuntime, materializeProviderSuite, parseProviderSuiteConfig } from '@aibridge/runtime';
 import { OpenAiCompatibleAdapter } from '@aibridge/provider-openai-compatible';
+import { DeepSeekAdapter } from '@aibridge/provider-deepseek';
 
 const syntheticSecret = `sk-${'A'.repeat(32)}`;
 
@@ -198,10 +199,82 @@ async function main() {
   assert.equal(events[events.length - 1].kind, 'FAILED', 'a scripted-less adapter stream fails deterministically');
   assert.ok(validateAiStreamSequence(events).ok, 'the stream sequence must be contract-valid');
 
+  // 12. One full multi-provider round trip through the Stage 4 suite surface: config -> suite ->
+  //     runtime -> one of the four adapter families -> normalized generic result.
+  const suite = parseProviderSuiteConfig({
+    providers: [
+      {
+        providerId: 'deepseek',
+        preset: 'DEEPSEEK_OFFICIAL',
+        enabled: true,
+        credentialRef: 'secret://portability/deepseek',
+        endpoint: { kind: 'PRESET' },
+        models: [
+          {
+            alias: 'deepseek.text.primary',
+            providerId: 'deepseek',
+            providerModelId: 'portability-deepseek-model',
+            profiles: ['balanced'],
+            features: ['text', 'structuredJson', 'usage'],
+            verifiedFeatures: ['text'],
+          },
+        ],
+      },
+    ],
+    routes: [{ profile: 'balanced', chain: ['deepseek.text.primary'] }],
+  });
+  assert.equal(suite.ok, true, `the provider suite config parses: ${JSON.stringify(suite.ok ? '' : suite.failure.issues)}`);
+
+  const suiteFetch = async (url, init) => {
+    captured.push({ url, init });
+    return jsonResponse({
+      choices: [{ message: { content: '{"summary":"two-pass approach"}' }, finish_reason: 'stop' }],
+      usage: { prompt_tokens: 12, completion_tokens: 5, total_tokens: 17 },
+    });
+  };
+  secrets.put('secret://portability/deepseek', syntheticSecret);
+  const materialized = await materializeProviderSuite(suite.value, {
+    factories: {
+      DEEPSEEK_OFFICIAL: (spec) =>
+        new DeepSeekAdapter({
+          id: spec.providerId,
+          baseUrl: spec.baseUrl,
+          fetch: suiteFetch,
+          models: spec.models.map((model) => ({
+            modelRef: model.providerModelId,
+            features: model.features,
+            maxContextTokens: 8_192,
+            maxOutputTokens: 4_096,
+            profiles: model.profiles,
+          })),
+        }),
+    },
+    secrets,
+    resolveEndpoint: (provider) => (provider.preset === 'DEEPSEEK_OFFICIAL' ? 'https://api.deepseek.com' : ''),
+  });
+  assert.equal(materialized.ok, true, 'the suite materializes');
+  const suiteResult = await materialized.value.runtime.execute(
+    {
+      ...consumerRequest(),
+      outputSchema: {
+        kind: 'INLINE',
+        schemaId: 'portability.summary',
+        version: '1.0',
+        dialect: 'aibridge.fields/v1',
+        fields: [{ name: 'summary', type: 'STRING', required: true, description: 'One-line summary.' }],
+      },
+    },
+    trustedContext(),
+  );
+  assert.equal(suiteResult.status, 'SUCCEEDED', `suite round trip: ${JSON.stringify(suiteResult.error)}`);
+  assert.deepEqual(suiteResult.output, { summary: 'two-pass approach' });
+  assert.equal(materialized.value.diagnostics()[0]?.models[0]?.featureStatus.text, 'VERIFIED');
+  assert.ok(!JSON.stringify(materialized.value.diagnostics()).includes(syntheticSecret), 'diagnostics never carry credentials');
+
   // And the result envelope itself parses.
   assert.equal(parseAiResult(result).ok, true, 'the normalized result parses against the contract');
 
-  process.stdout.write('check-portability: smoke OK (11 assertions over the packed runtime surface)\n');
+  process.stdout.write('check-portability: smoke OK (12 assertions over the packed runtime surface)\n');
 }
 
 await main();

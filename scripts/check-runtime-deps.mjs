@@ -17,6 +17,9 @@ const ALLOWED_IMPORTS = {
   'host-sdk': new Set(['@aibridge/contracts', '@aibridge/core']),
   runtime: new Set(['@aibridge/contracts', '@aibridge/core', '@aibridge/host-sdk']),
   'provider-openai-compatible': new Set(['@aibridge/contracts', '@aibridge/core']),
+  'provider-openai': new Set(['@aibridge/contracts', '@aibridge/core']),
+  'provider-deepseek': new Set(['@aibridge/contracts', '@aibridge/core', '@aibridge/provider-openai-compatible']),
+  'provider-xiaomi-tokenplan': new Set(['@aibridge/contracts', '@aibridge/core', '@aibridge/provider-openai-compatible']),
 };
 
 const ALLOWED_DEPENDENCIES = {
@@ -25,6 +28,9 @@ const ALLOWED_DEPENDENCIES = {
   'host-sdk': ['@aibridge/contracts', '@aibridge/core'],
   runtime: ['@aibridge/contracts', '@aibridge/core', '@aibridge/host-sdk'],
   'provider-openai-compatible': ['@aibridge/contracts', '@aibridge/core'],
+  'provider-openai': ['@aibridge/contracts', '@aibridge/core'],
+  'provider-deepseek': ['@aibridge/contracts', '@aibridge/core', '@aibridge/provider-openai-compatible'],
+  'provider-xiaomi-tokenplan': ['@aibridge/contracts', '@aibridge/core', '@aibridge/provider-openai-compatible'],
 };
 
 const IMPORT_SPECIFIER = /(?:from\s+|require\(\s*|import\(\s*)['"]([^'"]+)['"]/g;

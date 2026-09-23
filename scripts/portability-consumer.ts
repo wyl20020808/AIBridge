@@ -20,13 +20,16 @@ import {
   runHostConformance,
   runProviderConformance,
 } from '@aibridge/host-sdk';
-import { AiRuntime, normalizeProviderError, type RuntimeRoutes } from '@aibridge/runtime';
+import { AiRuntime, normalizeProviderError, parseProviderSuiteConfig, materializeProviderSuite, type RuntimeRoutes } from '@aibridge/runtime';
 import {
   OpenAiCompatibleAdapter,
   type FetchLike,
   type FetchRequestInitLike,
   type FetchResponseLike,
 } from '@aibridge/provider-openai-compatible';
+import { OpenAiAdapter } from '@aibridge/provider-openai';
+import { DeepSeekAdapter, DEEPSEEK_PRESET } from '@aibridge/provider-deepseek';
+import { XiaomiTokenPlanAdapter, XIAOMI_TOKEN_PLAN_CLUSTERS } from '@aibridge/provider-xiaomi-tokenplan';
 
 export async function portabilityCheck(): Promise<boolean> {
   const request: ConsumerAiRequest = {
@@ -73,6 +76,48 @@ export async function portabilityCheck(): Promise<boolean> {
   await runtime.registerProvider({ adapter });
   const normalized = normalizeProviderError({ category: 'AUTH' });
 
+  // The Stage 4 surface: four provider families, the preset vocabulary and the config contract.
+  const suiteConfig = parseProviderSuiteConfig({
+    providers: [
+      {
+        providerId: 'relay',
+        preset: 'OPENAI_COMPATIBLE_CUSTOM',
+        enabled: true,
+        credentialRef: 'secret://portability/relay',
+        endpoint: { kind: 'CUSTOM', baseUrl: 'https://api.example.invalid/v1' },
+        models: [
+          {
+            alias: 'relay.text.primary',
+            providerId: 'relay',
+            providerModelId: 'portability-model',
+            profiles: ['balanced'],
+            features: ['text', 'structuredJson', 'streaming', 'usage'],
+          },
+        ],
+      },
+    ],
+    routes: [{ profile: 'balanced', chain: ['relay.text.primary'] }],
+  });
+  const openai = new OpenAiAdapter({
+    id: 'openai',
+    baseUrl: 'https://api.example.invalid/v1',
+    fetch: fetchLike,
+    models: [{ modelRef: 'portability-model', features: ['text'], maxContextTokens: 8, maxOutputTokens: 8 }],
+  });
+  const deepseek = new DeepSeekAdapter({
+    id: 'deepseek',
+    baseUrl: DEEPSEEK_PRESET.defaultBaseUrl,
+    fetch: fetchLike,
+    models: [{ modelRef: 'portability-model', features: ['text'], maxContextTokens: 8, maxOutputTokens: 8 }],
+  });
+  const xiaomi = new XiaomiTokenPlanAdapter({
+    id: 'xiaomi',
+    cluster: XIAOMI_TOKEN_PLAN_CLUSTERS[0],
+    fetch: fetchLike,
+    models: [{ modelRef: 'portability-model', features: ['text'], maxContextTokens: 8, maxOutputTokens: 8 }],
+  });
+  void materializeProviderSuite;
+
   return (
     parsed.ok &&
     envelope.ok &&
@@ -81,6 +126,10 @@ export async function portabilityCheck(): Promise<boolean> {
     hostReport.passed &&
     providerReport.passed &&
     runtime.providerIds.length === 1 &&
-    normalized.code === 'PROVIDER_ERROR'
+    normalized.code === 'PROVIDER_ERROR' &&
+    suiteConfig.ok &&
+    openai.adapterApiVersion === 1 &&
+    deepseek.family === 'openai-compatible' &&
+    xiaomi.credentialShape === null
   );
 }
