@@ -45,9 +45,12 @@ export {
   ScriptedProviderAdapter,
   hangStep,
   rejectStep,
+  streamRejectStep,
+  streamStep,
   structuredStep,
   textStep,
   type ScriptedProviderOptions,
+  type ScriptedStreamStep,
   type ScriptedStructuredStep,
   type ScriptedTextStep,
 } from './scripted-provider.js';
@@ -63,6 +66,9 @@ export {
   PROVIDER_CONFORMANCE_CASES,
   makeProviderRequest,
   runProviderConformance,
+  scriptedConformanceTarget,
+  type ConformanceBehavior,
+  type ConformanceTarget,
   type ProviderConformanceCase,
   type ProviderConformanceOptions,
 } from './provider-conformance.js';
