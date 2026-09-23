@@ -28,11 +28,14 @@ import {
   type RequirementDelivery,
 } from '@aibridge/contracts';
 import { killSwitchError } from '@aibridge/core';
+import type { AttemptSkipReason } from '@aibridge/governance';
 
 /** One configured hop: an operator-named provider instance and an operator-side model ref. */
 export type RouteEntry = {
   readonly providerId: string;
   readonly modelRef: string;
+  /** The model alias this hop came from (`openai.reasoning.primary`), when configured via a suite. */
+  readonly modelAlias?: string;
 };
 
 /** `profile → ordered route chain`. The first survivor is the route; the rest are future fallback. */
@@ -52,9 +55,23 @@ export type ResolvedRoute = {
   readonly providerId: string;
   readonly modelRef: string;
   readonly profile: ModelProfile;
+  /** The configured alias, when there is one. Operator-side provenance (Stage 5). */
+  readonly modelAlias?: string;
 };
 
 export type RouteResolution = { readonly ok: true; readonly route: ResolvedRoute } | { readonly ok: false; readonly error: AiError };
+
+/** A hop the candidate walk dropped, and the stable reason why (Stage 5 Phase 52). */
+export type SkippedCandidate = {
+  readonly providerId: string;
+  readonly modelRef: string;
+  readonly modelAlias?: string;
+  readonly skipReason: AttemptSkipReason;
+};
+
+export type RouteCandidateScan =
+  | { readonly ok: true; readonly candidates: readonly ResolvedRoute[]; readonly skipped: readonly SkippedCandidate[] }
+  | { readonly ok: false; readonly error: AiError };
 
 /**
  * The quality class a consumer may rely on (INTEGRATION_CONTRACT_V1.md §12.3): what **actually**
@@ -130,6 +147,30 @@ export type ResolveRouteInput = {
  * caps. Nothing survives is `NO_ROUTE`; a switch that killed every candidate names itself.
  */
 export function resolveRoute(input: ResolveRouteInput): RouteResolution {
+  const scan = enumerateRouteCandidates(input);
+  if (!scan.ok) {
+    return scan;
+  }
+  const route = scan.candidates[0];
+  if (route === undefined) {
+    return {
+      ok: false,
+      error: makeAiError({
+        reason: 'NO_ROUTE',
+        message: 'No configured route satisfies this profile and requirement set.',
+        details: { profile: input.profile },
+      }),
+    };
+  }
+  return { ok: true, route };
+}
+
+/**
+ * Walk the whole chain and return **every** viable candidate in configured order, plus the hops
+ * that were dropped and the stable reason (Stage 5 Phase 52). `resolveRoute` is the first-survivor
+ * special case of this walk.
+ */
+export function enumerateRouteCandidates(input: ResolveRouteInput): RouteCandidateScan {
   const unsatisfiable = unsatisfiableRequirements(input.requirements, input.delivery);
   if (unsatisfiable.length > 0) {
     return {
@@ -155,19 +196,33 @@ export function resolveRoute(input: ResolveRouteInput): RouteResolution {
     return { ok: false, error: killSwitchError(verdict) };
   }
 
+  const candidates: ResolvedRoute[] = [];
+  const skipped: SkippedCandidate[] = [];
   for (const entry of chain) {
+    const skip = (skipReason: SkippedCandidate['skipReason']): void => {
+      skipped.push({
+        providerId: entry.providerId,
+        modelRef: entry.modelRef,
+        ...(entry.modelAlias === undefined ? {} : { modelAlias: entry.modelAlias }),
+        skipReason,
+      });
+    };
     if (!verdict.availableProviders.includes(entry.providerId)) {
+      skip('KILL_SWITCH');
       continue;
     }
     const bound = input.providers.get(entry.providerId);
     if (bound === undefined) {
+      skip('NOT_REGISTERED');
       continue;
     }
     const model = bound.descriptor.models.find((candidate) => candidate.modelRef === entry.modelRef);
     if (model === undefined) {
+      skip('NOT_REGISTERED');
       continue;
     }
     if (!model.profiles.includes(input.profile)) {
+      skip('CAPABILITY_UNMET');
       continue;
     }
     const unmet = unmetRequirements(model, bound.adapter, input.requirements, {
@@ -175,27 +230,20 @@ export function resolveRoute(input: ResolveRouteInput): RouteResolution {
       delivery: input.delivery,
     });
     if (unmet.length > 0) {
+      // No silent degrade: a hop that cannot meet the requirement set is dropped, not softened.
+      skip('CAPABILITY_UNMET');
       continue;
     }
-    return {
-      ok: true,
-      route: {
-        adapter: bound.adapter,
-        descriptor: bound.descriptor,
-        model,
-        providerId: entry.providerId,
-        modelRef: entry.modelRef,
-        profile: input.profile,
-      },
-    };
+    candidates.push({
+      adapter: bound.adapter,
+      descriptor: bound.descriptor,
+      model,
+      providerId: entry.providerId,
+      modelRef: entry.modelRef,
+      profile: input.profile,
+      ...(entry.modelAlias === undefined ? {} : { modelAlias: entry.modelAlias }),
+    });
   }
 
-  return {
-    ok: false,
-    error: makeAiError({
-      reason: 'NO_ROUTE',
-      message: 'No configured route satisfies this profile and requirement set.',
-      details: { profile: input.profile },
-    }),
-  };
+  return { ok: true, candidates, skipped };
 }
