@@ -25,11 +25,12 @@ function makeFakeRuntime(): ReturnType<typeof makeFakeOpenAi> & { readonly runti
   return { ...fake, runtime };
 }
 
-function textRequest(): Record<string, unknown> {
+function textRequest(turn = 1): Record<string, unknown> {
+  // One logical turn ⇒ one idempotencyKey (frozen §10). A test that runs two turns must say so.
   return {
     contractVersion: '1.0',
-    requestId: 'req-err-1',
-    idempotencyKey: 'turn-err.attempt-1',
+    requestId: `req-err-${turn}`,
+    idempotencyKey: `turn-err.attempt-${turn}`,
     capability: 'ai.text.generate',
     capabilityVersion: '1.0',
     profile: 'balanced',
@@ -112,7 +113,7 @@ describe('provider failures map to the closed generic error model', () => {
   it('maps 5xx to a retryable provider failure, 503 to overloaded', async () => {
     const { runtime, push } = makeFakeRuntime();
     push({ status: 500, json: { error: { type: 'server_error', message: VENDOR_SENTINEL } } });
-    expectMapping(await runtime.execute(textRequest(), context), {
+    expectMapping(await runtime.execute(textRequest(1), context), {
       code: 'PROVIDER_ERROR',
       reason: 'PROVIDER_UNAVAILABLE',
       retryable: true,
@@ -120,7 +121,7 @@ describe('provider failures map to the closed generic error model', () => {
     });
 
     push({ status: 503, json: { error: { type: 'invalid_request_error', message: VENDOR_SENTINEL } } });
-    expectMapping(await runtime.execute(textRequest(), context), {
+    expectMapping(await runtime.execute(textRequest(2), context), {
       code: 'PROVIDER_ERROR',
       reason: 'PROVIDER_OVERLOADED',
       retryable: true,
@@ -142,7 +143,7 @@ describe('provider failures map to the closed generic error model', () => {
   it('maps a malformed provider response to INVALID_RESPONSE', async () => {
     const { runtime, push } = makeFakeRuntime();
     push({ text: 'this is not json' });
-    expectMapping(await runtime.execute(textRequest(), context), {
+    expectMapping(await runtime.execute(textRequest(1), context), {
       code: 'INVALID_RESPONSE',
       reason: 'PROVIDER_BAD_RESPONSE',
       retryable: true,
@@ -150,7 +151,7 @@ describe('provider failures map to the closed generic error model', () => {
     });
 
     push({ json: { choices: [{ finish_reason: 'stop' }] } });
-    expectMapping(await runtime.execute(textRequest(), context), {
+    expectMapping(await runtime.execute(textRequest(2), context), {
       code: 'INVALID_RESPONSE',
       reason: 'PROVIDER_BAD_RESPONSE',
       retryable: true,
@@ -180,7 +181,7 @@ describe('provider failures map to the closed generic error model', () => {
       clock: new TestClock(0),
     });
     adapter.pushText(textStep('', { rawError: { category: 'AUTH', rawMessage: VENDOR_SENTINEL } }));
-    expectMapping(await runtime.execute(textRequest(), context), {
+    expectMapping(await runtime.execute(textRequest(1), context), {
       code: 'PROVIDER_ERROR',
       reason: 'PROVIDER_AUTH_FAILED',
       retryable: false,
@@ -188,7 +189,7 @@ describe('provider failures map to the closed generic error model', () => {
     });
 
     adapter.pushText(rejectStep(new ProviderCallError({ category: 'UPSTREAM', reason: 'PROVIDER_TIMEOUT', rawMessage: VENDOR_SENTINEL })));
-    expectMapping(await runtime.execute(textRequest(), context), {
+    expectMapping(await runtime.execute(textRequest(2), context), {
       code: 'TIMEOUT',
       reason: 'PROVIDER_TIMEOUT',
       retryable: true,

@@ -25,6 +25,9 @@ function makeRuntime(options: { readonly killSwitches?: KillSwitchRegistry } = {
       balanced: [{ providerId: 'scripted', modelRef: 'scripted-model' }],
     },
     clock: new TestClock(0),
+    // These are Stage 3 pipeline cases: single attempt, no repair. The Stage 5 repair contract
+    // (frozen §5.3, default `'ONCE'`) has its own coverage in tests/runtime/repair.test.ts.
+    governanceConfig: { outputRepair: 'NONE' },
     ...(options.killSwitches === undefined ? {} : { killSwitches: options.killSwitches }),
   });
   return { runtime, adapter };
@@ -98,7 +101,9 @@ describe('runtime — response normalization', () => {
     expect(result.output).toEqual({ summary: 'two passes' });
 
     adapter.pushStructured(structuredStep('{"unexpected":"field"}'));
-    const rejected = await runtime.execute(structuredRequest(), context());
+    // A new logical turn (frozen §10: one turn ⇒ one idempotencyKey); the request body differs in
+    // its turn identity, so this is a fresh execution and its schema failure must surface.
+    const rejected = await runtime.execute(structuredRequest({ idempotencyKey: 'turn-1.attempt-2' }), context());
     expectFailed(rejected, 'SCHEMA_VALIDATION_FAILED');
     expect(rejected.output).toBeUndefined();
   });
