@@ -17,42 +17,47 @@ Consumer plugin
       └─ provider adapter C
 ```
 
-## Current status — Stage 3
+## Current status — Stage 4
 
-**Provider runtime and one reference adapter proven against a real provider. No UI. No production
-change.**
+**Four real provider paths, one runtime, one generic result. No UI. No production change.**
 
 | | |
 | --- | --- |
-| Real provider connected | **TEST PATH ONLY** — one opt-in live smoke, recorded in the report |
-| API key configured | **NEVER COMMITTED** — resolved through the trusted secret boundary at runtime |
-| Runtime code shipped | **YES** — five dependency-free packages |
+| Providers implemented | **4** — OpenAI Official (Responses), DeepSeek Official, Xiaomi MiMo Token Plan, Generic OpenAI-Compatible Relay |
+| Real provider connected | **TEST PATH ONLY** — opt-in live harness (relay row live-qualified) |
+| API key configured | **NEVER COMMITTED** — `credentialRef` handles through the trusted secret boundary |
+| Runtime code shipped | **YES** — eight dependency-free packages |
 | UI | **NOT ALLOWED** |
 | Production runtime changed | **NO** |
 
 Stage 1 produced architecture. Stage 2 produced the generic contracts. Stage 3 drove them through a
-real AI provider: `@aibridge/runtime` (validation, provider resolution, trusted secret resolution,
-execution, timeout, cancellation, normalization, generic errors) and
-`@aibridge/provider-openai-compatible` (the one reference adapter), plus the streaming contract,
-deterministic fake-provider tests, secret-leakage regression tests, ESLint, and one recorded real
-round trip. See [`Docs/CONTRACTS.md`](Docs/CONTRACTS.md) for the exported surface,
-[`Docs/PROJECT_STATUS.md`](Docs/PROJECT_STATUS.md) for the stage gates and
-[`Docs/reports/STAGE_3_PROVIDER_RUNTIME_REPORT.md`](Docs/reports/STAGE_3_PROVIDER_RUNTIME_REPORT.md)
-for the acceptance report.
+real provider. Stage 4 built the **provider suite**: `@aibridge/provider-openai` (Responses API),
+`@aibridge/provider-deepseek` (thinking + reasoning isolation), `@aibridge/provider-xiaomi-tokenplan`
+(Token Plan auth + clusters) and the hardened `@aibridge/provider-openai-compatible` (generic
+relay, SSRF-safe endpoints), plus deterministic multi-provider configuration (presets, model
+aliases, profile routing, no silent degrade). Consumers still never learn which vendor served a
+call. See [`Docs/PROVIDERS.md`](Docs/PROVIDERS.md),
+[`Docs/PROVIDER_CONFIGURATION.md`](Docs/PROVIDER_CONFIGURATION.md),
+[`Docs/PROJECT_STATUS.md`](Docs/PROJECT_STATUS.md) and
+[`Docs/reports/STAGE_4_PROVIDER_SUITE_REPORT.md`](Docs/reports/STAGE_4_PROVIDER_SUITE_REPORT.md).
 
 ## Packages
 
 | Package | Role | Runtime deps |
 | --- | --- | --- |
 | `@aibridge/contracts` | versions, envelopes, error model, strict parsers, capability/descriptor types, `aibridge.fields/v1`, stream events, prompt channels | **zero** |
-| `@aibridge/core` | input safety, structural output safety, capability registry + directory, kill switches, provider/model registries | `@aibridge/contracts` |
+| `@aibridge/core` | input safety, structural output safety, capability registry + directory, kill switches, provider/model registries, endpoint (SSRF) safety | `@aibridge/contracts` |
 | `@aibridge/host-sdk` | host ports, in-memory + mutant fakes, scripted provider, host/provider conformance kits | `@aibridge/contracts`, `@aibridge/core` |
-| `@aibridge/runtime` | contract + capability validation, provider resolution, trusted secret resolution, execution, timeout, cancellation, normalization, generic errors | `@aibridge/contracts`, `@aibridge/core`, `@aibridge/host-sdk` |
-| `@aibridge/provider-openai-compatible` | the reference provider adapter — all provider wire shape stays inside | `@aibridge/contracts` |
+| `@aibridge/runtime` | pipeline, multi-provider config (presets, aliases, routes), trusted secret resolution, fallback chain contract, safe diagnostics | `@aibridge/contracts`, `@aibridge/core`, `@aibridge/host-sdk` |
+| `@aibridge/provider-openai-compatible` | Generic Relay provider + the internal OpenAI-compatible wire layer | `@aibridge/contracts`, `@aibridge/core` |
+| `@aibridge/provider-openai` | OpenAI Official (Responses API) | `@aibridge/contracts`, `@aibridge/core` |
+| `@aibridge/provider-deepseek` | DeepSeek Official (thinking, reasoning isolation) | `@aibridge/contracts`, `@aibridge/core`, `@aibridge/provider-openai-compatible` |
+| `@aibridge/provider-xiaomi-tokenplan` | Xiaomi MiMo Token Plan (auth, clusters) | `@aibridge/contracts`, `@aibridge/core`, `@aibridge/provider-openai-compatible` |
 
 Verify locally with `npm run verify` (strict typecheck → lint → gates → tests → build →
-portability). Run one real provider round trip, when credentials exist, with
-`npm run test:live-provider`.
+portability). Live qualification is opt-in and never in CI:
+`npm run test:live-providers` (or `test:live:openai` / `test:live:deepseek` /
+`test:live:xiaomi-tokenplan` / `test:live:relay`).
 
 ## Documents
 
@@ -60,7 +65,9 @@ portability). Run one real provider round trip, when credentials exist, with
 | --- | --- |
 | [`Docs/ARCHITECTURE.md`](Docs/ARCHITECTURE.md) | Responsibility split, envelopes, errors, providers, routing, reliability, governance, versioning, host integration |
 | [`Docs/CAPABILITIES.md`](Docs/CAPABILITIES.md) | Generic primitives vs specialized capability packs, registry, discovery, decision table |
-| [`Docs/CONTRACTS.md`](Docs/CONTRACTS.md) | Stage 2 contract reference: package surfaces, consumer/trusted split, schema ownership, gates |
+| [`Docs/PROVIDERS.md`](Docs/PROVIDERS.md) | The provider suite: wire protocols, auth, structured/streaming/reasoning semantics, limitations, live status |
+| [`Docs/PROVIDER_CONFIGURATION.md`](Docs/PROVIDER_CONFIGURATION.md) | Presets, model aliases, routes, secrets, SSRF rules, diagnostics |
+| [`Docs/CONTRACTS.md`](Docs/CONTRACTS.md) | Contract reference: package surfaces, consumer/trusted split, schema ownership, gates |
 | [`Docs/INTEGRATION_CONTRACT_V1.md`](Docs/INTEGRATION_CONTRACT_V1.md) | **Frozen parallel contract** for consumer plugins (AlgoQuest Stage 6) |
 | [`Docs/SECURITY.md`](Docs/SECURITY.md) | Secret boundary, PII/secret input policy, permissions, log redaction |
 | [`Docs/TESTING.md`](Docs/TESTING.md) | Test strategy, incl. mechanically asserted secret-leak tests |

@@ -14,9 +14,9 @@ Stage 1 (this one) is **architecture only** — see [`PROJECT_STATUS.md`](PROJEC
 | 1 | **Plugin architecture** | boundaries, capability model, provider boundaries, security, routing, configuration, portability, versioning, this roadmap | — |
 | 2 | **Generic AI contracts** | `@aibridge/contracts`, `@aibridge/core` skeleton, `@aibridge/host-sdk` ports + fakes, envelope validators, error model, fixture runner, portability + secret-leak checks | 1 |
 | 3 | **Provider runtime + OpenAI-compatible provider** | `@aibridge/runtime`, `@aibridge/provider-openai-compatible` + provider conformance kit + real-provider proof, streaming, ESLint | 2 |
-| 4 | **Structured generation** | extraction, validation, repair, no-partial-results — `ai.structured.generate` end to end against a fake and against the Stage 3 adapter | 3 |
+| 4 | **Provider suite & multi-provider qualification** | `@aibridge/provider-openai` (Responses), `@aibridge/provider-deepseek`, `@aibridge/provider-xiaomi-tokenplan`, relay hardening (SSRF), presets, model aliases, profile routing, fallback contract, provider config + diagnostics, live harness | 3 |
 | 5 | **Routing + config + secrets** | `AiRouter`, `ProviderConfig` / `ModelRouteConfig` / `CapabilityRouteConfig`, secret resolution, config validation + atomic reload | 4 |
-| 6 | **Reliability** | timeout budgets, bounded retry, fallback chains, output repair policy, cancellation, idempotency registry, provider disable (breaker-ready) | 5 |
+| 6 | **Reliability** | timeout budgets, bounded retry, fallback chains (applying the Stage 4 `nextFallback` contract automatically), **output repair**, cancellation, idempotency registry, provider disable (breaker-ready) | 5 |
 | 7 | **Usage + rate limits** | usage ledger, cost estimation, rate limits, quotas, observability | 6 |
 | 8 | **Specialized capability packs** | `@aibridge/capabilities`: `education.idea.evaluate`, `education.hint.generate`, `learning.summary.generate`, `code.debug.analyze`, `code.explain`; `CapabilityRegistry`; discovery | 7 |
 | 9 | **OJPlatform integration** | `@aibridge/adapter-ojplatform`, host manifest projection, capability broker gap closure **in the host** (separate approved change) | 8 |
@@ -27,6 +27,12 @@ reliability, reliability before cost controls, packs before any host integration
 provider that exists first is the OpenAI-compatible one, because `baseUrl` + `apiKey` + `model`
 reaches the widest set of vendors — but only after it is **probed**, never assumed
 ([`ARCHITECTURE.md`](ARCHITECTURE.md) §7.3).
+
+> **Stage renumbering note.** The approved Stage 4 plan ("Provider Suite & Multi-Provider
+> Qualification") replaced the original Stage 4 slot ("Structured generation"). Structured
+> extraction + validation landed early as runtime glue in Stage 3; the remaining piece — bounded
+> output **repair** — moved into Stage 6 reliability, where `ARCHITECTURE.md` §10.4 already places
+> it. Everything else in the track is unchanged.
 
 ---
 
@@ -163,6 +169,69 @@ Stage 3 is complete. See
 - coupling check and secret-leak check run in `verify`;
 - unknown-major rejection demonstrated with a test;
 - working tree clean, report in `Docs/reports/`.
+
+---
+
+## Stage 4 checklist — "Provider Suite & Multi-Provider Qualification"
+
+Stage 4 is complete. See
+[`reports/STAGE_4_PROVIDER_SUITE_REPORT.md`](reports/STAGE_4_PROVIDER_SUITE_REPORT.md).
+
+### In scope
+
+- [x] Stage 3 audit: generic wire logic vs OpenAI-specific vs provider-specific assumptions
+      recorded before extraction (report §audit).
+- [x] Shared wire reuse: the OpenAI-compatible wire layer extracted only where **three** adapters
+      genuinely reuse it (relay, DeepSeek, Xiaomi), each reuse proven by tests. OpenAI Official
+      keeps its own Responses wire path.
+- [x] `@aibridge/provider-openai` — OpenAI Official, **Responses API** default path: request
+      translation (`instructions` + fenced `input`), native `text.format` strict JSON Schema gated
+      on declared `jsonSchema`, semantic streaming events, usage/finish normalization, refusal as
+      a signal, official error object mapping. Subscription/web-login explicitly unsupported.
+- [x] `@aibridge/provider-deepseek` — thinking / reasoning-effort mapping (explicit, configurable,
+      never a silent high), **reasoning-content isolation**, JSON Output as valid-JSON-only, the
+      official error table (incl. 402 insufficient balance).
+- [x] `@aibridge/provider-xiaomi-tokenplan` — Token Plan auth (`api-key` header; `tp-` prefix as a
+      diagnostic hint only), `CN`/`SGP`/`EU` cluster presets with trusted overrides,
+      `max_completion_tokens`, thinking toggle, declared-only features.
+- [x] `@aibridge/provider-openai-compatible` — positioned as the **Generic OpenAI-Compatible /
+      Relay** provider: `AuthScheme` enum, SSRF-safe endpoints (HTTPS, no private/metadata
+      targets, integer-IPv4 bypass covered, bounded re-validated redirects), dialect knobs, no
+      vendor brand lists.
+- [x] Presets (4), model aliases, deterministic profile routing over `resolveRoute`, **no silent
+      degrade** (config-enforced), deterministic fallback chain contract (`nextFallback`).
+- [x] Capability probe: non-generative only, never at startup; declared vs verified features.
+- [x] Provider conformance across all adapters + the base checklist as one table × 4 providers
+      (incl. timeout, cancel, secret leak, malicious provider-error sanitization).
+- [x] Config contract (`ProviderConfig` / `ModelAliasConfig` / `RouteConfig`) with strict
+      validation; in-memory/fixture config only — OJPlatform config untouched.
+- [x] Safe diagnostics (`ProviderDiagnostic`) + usage normalization only (no billing).
+- [x] Live harness (`test:live-providers` + per-provider scripts), all OPT-IN; relay row
+      `LIVE_QUALIFIED` against a real endpoint, others `LIVE_NOT_RUN` without credentials.
+- [x] Portability for all 8 packages incl. declaration hygiene; `npm run verify` green.
+
+### Out of scope for Stage 4 (explicitly)
+
+- UI of any kind (never until the gate is lifted — [`AGENTS.md`](../AGENTS.md) §6);
+- OpenAI OAuth / subscription login, ChatGPT web endpoints, cookie or session handling;
+- a provider marketplace, health scoring, dynamic breakers, cost optimizers;
+- automatic runtime fallback/retry (the Stage 4 chain contract is complete; its automatic
+  application is Stage 5/6, deliberately not half-implemented);
+- billing, quotas, dashboards (governance stages); durable host config (integration stage);
+- the Anthropic protocol for Xiaomi and the Responses surface for DeepSeek/Xiaomi (documented as
+  deferred protocols);
+- any OJPlatform or AlgoQuest modification.
+
+### Exit gate — `AIBRIDGE_STAGE_4 = PASS` requires
+
+- four providers implemented (OpenAI Responses, DeepSeek thinking, Xiaomi Token Plan, relay);
+- one base-contract table passes through all four: success, structured, malformed, 401/403, 404
+  model, 429, 5xx, timeout, cancel, usage, finish, stream success, stream error;
+- reasoning content never leaks; provider raw errors sanitized; credentials never leak;
+- SSRF basics hold and a consumer can never set an endpoint;
+- model ids are config, routes are deterministic, no silent degrade;
+- all conformance + portability + typecheck + lint + gates + tests + build + `npm run verify`;
+- OJPlatform and AlgoQuest untouched; working tree clean; report in `Docs/reports/`.
 
 ---
 

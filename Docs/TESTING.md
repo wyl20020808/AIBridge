@@ -50,6 +50,14 @@ Cases, minimum (✓ = in the kit; ↗ = enforced where the layer lives):
 Modelled on AlgoQuest's `host-sdk` Conformance Kit idea (mutant-killing suites), adapted here
 for adapters rather than host providers.
 
+**Stage 4.** The kit runs unchanged against **five** adapters (the scripted reference plus OpenAI
+Official, DeepSeek Official, Xiaomi Token Plan and the generic relay) through their own injection
+seams (`tests/provider-suite/conformance.test.ts`). On top of it, the Phase 28 base checklist is
+one table executed through one `AiRuntime` **per provider** (`tests/runtime/provider-matrix.test.ts`):
+text success · structured success · malformed response · 401/403 · 404 model · 429 · 5xx ·
+timeout · cancel · usage · finish reason · stream success · stream error · credential-leak and
+malicious-provider-error sanitization. Provider-specific suites live beside it.
+
 ---
 
 ## 2. Security tests — mechanically asserted

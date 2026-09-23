@@ -10,7 +10,7 @@ Per-stage acceptance reports are in [`reports/`](reports/).
 | 1 | Plugin architecture (boundaries, capability model, provider boundaries, security, routing, configuration, portability, versioning) | **PASS** |
 | 2 | Generic AI contracts | **PASS** |
 | 3 | Provider runtime & reference adapter | **PASS** |
-| 4 | Structured generation | not started |
+| 4 | Provider suite & multi-provider qualification | **PASS** |
 | 5 | Routing + config + secrets | not started |
 | 6 | Reliability | not started |
 | 7 | Usage + rate limits | not started |
@@ -62,6 +62,29 @@ references):
 
 **Not present, deliberately:** any UI, any host modification, any provider in a production user
 flow. `entry` is still `null`.
+
+Stage 4 added three provider packages and hardened the fourth, plus deterministic multi-provider
+configuration:
+
+- `packages/provider-openai` (`@aibridge/provider-openai`) — OpenAI Official, **Responses API**
+  wire path (independent of the chat adapter): native strict JSON Schema gated on declared
+  features, semantic streaming events, reasoning isolation, official error mapping. Official API
+  credentials only — subscription web login is explicitly unsupported.
+- `packages/provider-deepseek` (`@aibridge/provider-deepseek`) — DeepSeek Official: explicit
+  thinking / reasoning-effort mapping (never a silent high), reasoning-content isolation, JSON
+  Output as valid-JSON-only, the official error table.
+- `packages/provider-xiaomi-tokenplan` (`@aibridge/provider-xiaomi-tokenplan`) — Xiaomi MiMo
+  Token Plan: `api-key` auth, `CN`/`SGP`/`EU` cluster presets, `tp-` diagnostics,
+  `max_completion_tokens`, thinking toggle.
+- `packages/provider-openai-compatible` — repositioned as the **Generic Relay** provider and the
+  home of the internal reusable OpenAI-compatible wire layer (three adapters genuinely share it):
+  `AuthScheme` enum, SSRF-safe endpoints with bounded re-validated redirects, dialect knobs.
+- `@aibridge/runtime` — deterministic multi-provider configuration: presets, model aliases,
+  strict config validation, no-silent-degrade profile routing, the fallback chain contract
+  (`nextFallback`), declared-vs-verified qualification and credential-free `ProviderDiagnostic`.
+- `@aibridge/core` — `endpoint-safety` (fail-closed SSRF checks for operator endpoints).
+- Live harness: `npm run test:live-providers` + `test:live:{openai,deepseek,xiaomi-tokenplan,relay}`
+  — opt-in, environment-only credentials, `SKIP`/`LIVE_NOT_RUN` without credentials.
 
 Stage 3 added two more portable packages and paid down the ESLint deferral:
 
@@ -162,16 +185,44 @@ Stage 3 added two more portable packages and paid down the ESLint deferral:
 | Working tree clean | `git status` clean at the Stage 3 commits |
 | Full report | [`reports/STAGE_3_PROVIDER_RUNTIME_REPORT.md`](reports/STAGE_3_PROVIDER_RUNTIME_REPORT.md) |
 
+## Stage 4 exit gate
+
+`AIBRIDGE_STAGE_4 = PASS`
+
+| Requirement | Evidence |
+| --- | --- |
+| OpenAI Official adapter implemented | `@aibridge/provider-openai` (Responses API path) |
+| OpenAI Responses / structured / streaming PASS | `tests/provider-openai/adapter.test.ts` + the matrix rows |
+| DeepSeek adapter implemented | `@aibridge/provider-deepseek` |
+| DeepSeek thinking mapping PASS | `tests/provider-deepseek/adapter.test.ts` (explicit, configurable, no silent high) |
+| DeepSeek structured handling PASS | JSON Output = valid JSON only; empty/missing content rows |
+| Reasoning content not leaked | shared wire isolation + provider tests + matrix security row |
+| Xiaomi Token Plan adapter implemented | `@aibridge/provider-xiaomi-tokenplan` |
+| Xiaomi auth / cluster / structured PASS | `tests/provider-xiaomi-tokenplan/adapter.test.ts` |
+| Generic Relay PASS | `tests/provider-openai-compatible/*` |
+| Trusted custom endpoint + SSRF + consumer cannot override URL | `tests/core/endpoint-safety.test.ts`, wire relay tests, config tests |
+| Model IDs are config, not hardcoded | config contract + tests (`MODEL_FROM_CONFIG` ids) |
+| Profile routes deterministic, no silent degrade | `tests/runtime/provider-suite.test.ts` |
+| Provider raw errors sanitized, credentials never leak | malicious-error matrix row × 4 + `tests/security/runtime-secrets.test.ts` |
+| All provider conformance PASS | `tests/provider-suite/conformance.test.ts` (5 adapters) + base table × 4 |
+| Package portability PASS | `npm run check:portability` — 8 packages, declaration hygiene, smoke |
+| Strict typecheck / lint / gates / tests / build / `npm run verify` | green |
+| Live rows | relay `LIVE_QUALIFIED`; OpenAI/DeepSeek/Xiaomi `LIVE_NOT_RUN` (no credentials) |
+| OJPlatform / AlgoQuest untouched | read-only audit (report §AlgoQuest) |
+| Working tree clean | `git status` clean at the Stage 4 commits |
+| Full report | [`reports/STAGE_4_PROVIDER_SUITE_REPORT.md`](reports/STAGE_4_PROVIDER_SUITE_REPORT.md) |
+
 ## Stage gates — current state
 
 | Gate | State |
 | --- | --- |
-| Real provider connected | **TEST PATH ONLY** — one opt-in live smoke (`npm run test:live-provider`); no provider in any production user flow |
-| API key configured | **NEVER COMMITTED** — resolved at runtime from the host secret store / environment through the trusted boundary |
+| Real provider connected | **TEST PATH ONLY** — opt-in live harness; relay row live-qualified. No provider in any production user flow |
+| API key configured | **NEVER COMMITTED** — `credentialRef` handles resolved through the trusted secret boundary |
+| Providers implemented | **4** (OpenAI Official, DeepSeek Official, Xiaomi Token Plan, Generic Relay) |
 | UI | **NOT ALLOWED** ([`AGENTS.md`](../AGENTS.md) §6) |
 | Production runtime changed | **NO** |
 | Host modified | **NO** |
-| `packages/` created | **YES** — `contracts`, `core`, `host-sdk`, `runtime`, `provider-openai-compatible` (code + tests) |
+| `packages/` created | **YES** — `contracts`, `core`, `host-sdk`, `runtime`, `provider-openai-compatible`, `provider-openai`, `provider-deepseek`, `provider-xiaomi-tokenplan` |
 
 ## Status update rules
 

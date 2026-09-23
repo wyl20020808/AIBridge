@@ -29,6 +29,19 @@ of mechanical, testable boundaries — and the tests to prove them
 > deliberately broken (a planted credential-shaped file makes `check-no-secret-leak.mjs` exit 1 —
 > asserted as a test and re-run manually for the Stage 3 report).
 
+> **Stage 4 extends the boundary to the provider suite.** (a) **SSRF posture** (§2.4): a provider
+> base URL comes only from trusted operator configuration and is validated fail-closed — HTTPS,
+> no embedded credentials, no loopback/private/link-local/cloud-metadata targets (including
+> integer IPv4 encodings), bounded redirects with every target re-validated; development-only
+> relaxation defaults to off. A consumer request can never carry a URL, host or endpoint.
+> (b) **Reasoning isolation**: chain-of-thought (`reasoning_content`, reasoning items/deltas) is
+> read and discarded at the adapter boundary — never output, persisted or forwarded.
+> (c) **Malicious provider errors**: a vendor error body deliberately echoing the credential,
+> learner-like PII and a stack trace is sanitized on every consumer-reachable surface — tested for
+> all four providers. (d) `ProviderDiagnostic` is credential-free by construction (handles only).
+> (e) Live credentials enter only from the environment; web sessions, cookies and subscription
+> logins are explicitly out of scope and no code touches them.
+
 ---
 
 ## 1. Trust boundaries

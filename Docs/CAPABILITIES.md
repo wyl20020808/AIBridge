@@ -23,6 +23,13 @@ The layer split exists so that "general" does not mean "a complete AI platform" 
 > registered as metadata (`GENERIC_CAPABILITY_REGISTRATIONS`); neither policy carries a business
 > rule. See [`CONTRACTS.md`](CONTRACTS.md) §10–13.
 
+> **Stage 4 status.** The provider suite changes nothing here — deliberately. Providers are
+> plumbing; capabilities are contracts. A consumer still requests `capability + profile +
+> requirements + input` and never learns which vendor served the call
+> ([`PROVIDERS.md`](PROVIDERS.md)). `requirements` are validated against the resolved model's
+> declared features before dispatch, and the V1 generic primitives are what the four providers
+> execute today.
+
 ---
 
 ## 1. Layer 1 — Generic primitives

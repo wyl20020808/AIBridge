@@ -108,7 +108,10 @@ host data lookup · any host database read.
 @aibridge/core             envelopes, router, fallback, retry, structured pipeline, governance
 @aibridge/host-sdk         host port interfaces + in-memory fakes + conformance kit
 @aibridge/capabilities     specialized capability packs (packaged per family later)
-@aibridge/provider-openai-compatible   the first provider adapter
+@aibridge/provider-openai-compatible   the generic relay provider + the shared OpenAI-compatible wire layer
+@aibridge/provider-openai              OpenAI Official (Responses API wire path)
+@aibridge/provider-deepseek            DeepSeek Official (chat dialect + thinking semantics)
+@aibridge/provider-xiaomi-tokenplan    Xiaomi MiMo Token Plan (chat dialect + Token Plan auth)
 ───────────────────────────────────────────────────────────────────────────────
 @aibridge/adapter-<host>   OPTIONAL, separate, the only place a host is named
 ```
