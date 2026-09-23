@@ -16,7 +16,8 @@
       "@aibridge/runtime": ["packages/runtime/src/index.ts"],
       "@aibridge/provider-openai-compatible": ["packages/provider-openai-compatible/src/index.ts"],
       "@aibridge/provider-openai": ["packages/provider-openai/src/index.ts"],
-      "@aibridge/provider-deepseek": ["packages/provider-deepseek/src/index.ts"]
+      "@aibridge/provider-deepseek": ["packages/provider-deepseek/src/index.ts"],
+      "@aibridge/provider-xiaomi-tokenplan": ["packages/provider-xiaomi-tokenplan/src/index.ts"]
     }
   },
   "include": ["packages/*/src/**/*.ts", "tests/**/*.ts", "vitest.config.ts"]

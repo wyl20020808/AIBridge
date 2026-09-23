@@ -7,6 +7,7 @@
     { "path": "packages/runtime" },
     { "path": "packages/provider-openai-compatible" },
     { "path": "packages/provider-openai" },
-    { "path": "packages/provider-deepseek" }
+    { "path": "packages/provider-deepseek" },
+    { "path": "packages/provider-xiaomi-tokenplan" }
   ]
 }

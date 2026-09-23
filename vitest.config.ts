@@ -17,6 +17,7 @@ export default defineConfig({
       '@aibridge/provider-openai-compatible': resolvePackage('./packages/provider-openai-compatible/src/index.ts'),
       '@aibridge/provider-openai': resolvePackage('./packages/provider-openai/src/index.ts'),
       '@aibridge/provider-deepseek': resolvePackage('./packages/provider-deepseek/src/index.ts'),
+      '@aibridge/provider-xiaomi-tokenplan': resolvePackage('./packages/provider-xiaomi-tokenplan/src/index.ts'),
     },
   },
   test: {
