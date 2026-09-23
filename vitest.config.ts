@@ -16,6 +16,7 @@ export default defineConfig({
       '@aibridge/runtime': resolvePackage('./packages/runtime/src/index.ts'),
       '@aibridge/provider-openai-compatible': resolvePackage('./packages/provider-openai-compatible/src/index.ts'),
       '@aibridge/provider-openai': resolvePackage('./packages/provider-openai/src/index.ts'),
+      '@aibridge/provider-deepseek': resolvePackage('./packages/provider-deepseek/src/index.ts'),
     },
   },
   test: {

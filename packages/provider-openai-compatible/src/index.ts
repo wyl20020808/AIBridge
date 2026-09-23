@@ -60,6 +60,7 @@ export {
   isAuthScheme,
   resolveThinking,
   sanitizeRawMessage,
+  sendGet,
   sendPost,
   type AuthScheme,
   type ChatChunkOutcome,

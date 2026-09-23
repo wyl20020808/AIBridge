@@ -158,7 +158,7 @@ export const MAX_REDIRECTS = 3;
 export type SendOptions = {
   readonly fetch: FetchLike;
   readonly url: string;
-  readonly body: string;
+  readonly body?: string;
   readonly headers: Readonly<Record<string, string>>;
   readonly deadlineAtMs: number;
   readonly nowMs: () => number;
@@ -176,6 +176,15 @@ export type SendOptions = {
  * vendor error body right here, so no caller can accidentally parse an error page as an answer.
  */
 export async function sendPost(options: SendOptions): Promise<FetchResponseLike> {
+  return sendWithPolicy({ ...options, method: 'POST' });
+}
+
+/** GET with the same abort scope and redirect policy (used by non-generative probes). */
+export async function sendGet(options: SendOptions): Promise<FetchResponseLike> {
+  return sendWithPolicy({ ...options, method: 'GET' });
+}
+
+async function sendWithPolicy(options: SendOptions & { readonly method: 'POST' | 'GET' }): Promise<FetchResponseLike> {
   const initial = checkEndpointSafety(options.url, {
     ...(options.allowPrivateNetworkForDevelopment === undefined
       ? {}
@@ -197,9 +206,9 @@ export async function sendPost(options: SendOptions): Promise<FetchResponseLike>
     let url = options.url;
     for (let hop = 0; hop <= MAX_REDIRECTS; hop += 1) {
       const init: FetchRequestInitLike = {
-        method: 'POST',
+        method: options.method,
         headers: options.headers,
-        body: options.body,
+        ...(options.body === undefined ? {} : { body: options.body }),
         signal: controller.signal,
         redirect: 'manual',
       };
