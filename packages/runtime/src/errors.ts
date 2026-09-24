@@ -26,6 +26,7 @@ import {
 /** Sanitized bridge wording per provider-side reason. Never vendor prose. */
 const PROVIDER_REASON_MESSAGES: Readonly<Partial<Record<AiErrorReason, string>>> = {
   PROVIDER_AUTH_FAILED: 'The provider rejected its configured credential. An operator must repair the deployment.',
+  PROVIDER_BALANCE_EXHAUSTED: 'The provider account cannot pay for this call (quota or balance exhausted). An operator must top up or re-route the deployment.',
   PROVIDER_REQUEST_REJECTED: 'The provider rejected the composed request.',
   PROVIDER_THROTTLED: 'The provider throttled the request.',
   PROVIDER_OVERLOADED: 'The provider is temporarily overloaded.',
