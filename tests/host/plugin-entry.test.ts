@@ -200,11 +200,21 @@ describe('the AI Bridge server plugin entry', () => {
     expect(result.error?.reason).toBe('TRUSTED_FIELD_IN_CONSUMER_REQUEST');
   });
 
-  it('lists the generic capabilities with governance applied', async () => {
+  it('lists the built-in capabilities with governance applied', async () => {
     const { plugin } = await makePlugin();
     const capabilities = plugin.listCapabilities().map((entry) => `${entry.id}@${entry.version} ${entry.status}`).sort();
-    expect(capabilities).toEqual(['ai.structured.generate@1.0 AVAILABLE', 'ai.text.generate@1.0 AVAILABLE']);
+    expect(capabilities).toEqual([
+      'ai.structured.generate@1.0 AVAILABLE',
+      'ai.text.generate@1.0 AVAILABLE',
+      'code.debug.analyze@1.0 AVAILABLE',
+    ]);
     expect(plugin.getCapability('ai.structured.generate', '1')?.kind).toBe('GENERIC');
+    expect(plugin.getCapability('code.debug.analyze', '1')).toMatchObject({
+      kind: 'SPECIALIZED',
+      readiness: 'STABLE',
+      instructionMode: 'CONSUMER_COMPOSED',
+      requiredPrimitive: 'ai.structured.generate',
+    });
     expect(plugin.getCapability('nope.nope.nope')).toBeNull();
   });
 

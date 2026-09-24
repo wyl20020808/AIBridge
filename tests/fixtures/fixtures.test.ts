@@ -9,8 +9,19 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { FIXTURE_SET_VERSION, parseAiRequestEnvelope, parseAiResult } from '@aibridge/contracts';
+import {
+  AIBRIDGE_CONTRACT_VERSION,
+  AIBRIDGE_ERROR_VERSION,
+  AIBRIDGE_FIELD_DIALECT,
+  AIBRIDGE_RESPONSE_SCHEMA_VERSION,
+  CAPABILITY_DESCRIPTOR_VERSION,
+  FIXTURE_SET_VERSION,
+  GENERIC_REQUEST_SCHEMA_VERSION,
+  parseAiRequestEnvelope,
+  parseAiResult,
+} from '@aibridge/contracts';
 import { screenAiInput } from '@aibridge/core';
+import { defaultCapabilityRegistry, parseCodeDebugInput, validateCodeDebugOutput } from '@aibridge/runtime';
 import { describe, expect, it } from 'vitest';
 
 import { unwrap, unwrapFailure } from '../helpers/assertions.js';
@@ -25,6 +36,21 @@ type Fixture = {
   readonly case: string;
   readonly reason?: string;
   readonly document: Record<string, unknown>;
+  readonly validationInput?: unknown;
+  readonly compatibility?: {
+    readonly contractVersion: string;
+    readonly requestSchemaVersion: string;
+    readonly responseSchemaVersion: string;
+    readonly errorVersion: string;
+    readonly descriptorVersion: string;
+    readonly fieldDialect: string;
+    readonly logicalCapability: string;
+    readonly capabilityVersion: string;
+    readonly requiredPrimitive: string;
+    readonly readiness: string;
+    readonly instructionMode: string;
+    readonly colonIdempotencyKey: string;
+  };
 };
 
 const FIXTURE_DIR = fileURLToPath(new URL('../../Docs/fixtures/fixture-set.v1', import.meta.url));
@@ -39,6 +65,12 @@ const EXPECTED_FILES = [
   'ai.text.generate.response.balance-exhausted.json',
   'ai.text.generate.response.ok.json',
   'ai.text.generate.response.reliability.json',
+  'code.debug.analyze.compatibility.json',
+  'code.debug.analyze.request.ok.json',
+  'code.debug.analyze.request.provenance-invalid.json',
+  'code.debug.analyze.request.trust-invalid.json',
+  'code.debug.analyze.response.ok.json',
+  'code.debug.analyze.response.output-reference-invalid.json',
   'education.idea.evaluate.request.ok.json',
   'education.idea.evaluate.response.ok.json',
   'education.idea.evaluate.response.unavailable.json',
@@ -77,6 +109,61 @@ describe('compatibility fixtures', () => {
     }
   });
 
+  it('requires the commissioned specialized capability fixtures and case names', () => {
+    expect(files.filter((name) => name.startsWith('code.debug.analyze.'))).toEqual([
+      'code.debug.analyze.compatibility.json',
+      'code.debug.analyze.request.ok.json',
+      'code.debug.analyze.request.provenance-invalid.json',
+      'code.debug.analyze.request.trust-invalid.json',
+      'code.debug.analyze.response.ok.json',
+      'code.debug.analyze.response.output-reference-invalid.json',
+    ]);
+    expect(files.filter((name) => name.startsWith('code.debug.analyze.')).map((name) => load(name).case)).toEqual([
+      'code-debug-v1-compatibility-mapping',
+      'valid-code-debug-request-with-prompt-provenance',
+      'reject-code-debug-without-prompt-version',
+      'reject-trusted-source-code-context',
+      'valid-closed-code-debug-result',
+      'reject-reference-outside-supplied-context',
+    ]);
+  });
+
+  it('pins the additive Stage 7 compatibility mapping without changing response or field dialect versions', () => {
+    const fixture = load('code.debug.analyze.compatibility.json');
+    const compatibility = fixture.compatibility;
+    expect(compatibility).toBeDefined();
+    expect(compatibility).toMatchObject({
+      contractVersion: '1.2',
+      requestSchemaVersion: '1.2',
+      responseSchemaVersion: '1.1',
+      errorVersion: '1.2',
+      descriptorVersion: '1.1',
+      fieldDialect: 'aibridge.fields/v1',
+      logicalCapability: 'code.debug.analyze',
+      capabilityVersion: '1.0',
+      requiredPrimitive: 'ai.structured.generate',
+      readiness: 'STABLE',
+      instructionMode: 'CONSUMER_COMPOSED',
+      colonIdempotencyKey: expect.stringContaining(':'),
+    });
+    expect(compatibility?.contractVersion).toBe(AIBRIDGE_CONTRACT_VERSION);
+    expect(compatibility?.requestSchemaVersion).toBe(GENERIC_REQUEST_SCHEMA_VERSION);
+    expect(compatibility?.responseSchemaVersion).toBe(AIBRIDGE_RESPONSE_SCHEMA_VERSION);
+    expect(compatibility?.errorVersion).toBe(AIBRIDGE_ERROR_VERSION);
+    expect(compatibility?.descriptorVersion).toBe(CAPABILITY_DESCRIPTOR_VERSION);
+    expect(compatibility?.fieldDialect).toBe(AIBRIDGE_FIELD_DIALECT);
+
+    const descriptor = defaultCapabilityRegistry().get('code.debug.analyze', '1.0');
+    expect(descriptor).toMatchObject({
+      id: compatibility?.logicalCapability,
+      version: compatibility?.capabilityVersion,
+      kind: 'SPECIALIZED',
+      requiredPrimitive: compatibility?.requiredPrimitive,
+      readiness: compatibility?.readiness,
+      instructionMode: compatibility?.instructionMode,
+    });
+  });
+
   it('contains a credential-shaped value in exactly one file — the allow-listed synthetic one', () => {
     for (const name of files) {
       const text = readFileSync(join(FIXTURE_DIR, name), 'utf8');
@@ -94,6 +181,30 @@ describe('compatibility fixtures', () => {
 
     if (fixture.kind === 'request') {
       const parsed = parseAiRequestEnvelope(fixture.document);
+
+      if (fixture.capability === 'code.debug.analyze') {
+        if (!parsed.ok) {
+          expect(fixture.expect).toBe('reject');
+          expect(parsed.failure.reason).toBe(fixture.reason);
+          expect(parsed.failure.issues.length).toBeGreaterThan(0);
+          return;
+        }
+
+        const envelope = unwrap(parsed);
+        expect(envelope.capability).toBe('code.debug.analyze');
+        expect(envelope.capabilityVersion).toBe('1.0');
+        const specializedInput = parseCodeDebugInput(envelope.input);
+        if (fixture.expect === 'accept') {
+          expect(specializedInput.ok, fixture.case).toBe(true);
+          if (specializedInput.ok) {
+            expect(specializedInput.value.context.every((entry) => entry.untrusted)).toBe(true);
+          }
+        } else {
+          const failure = unwrapFailure(specializedInput);
+          expect(failure.reason).toBe(fixture.reason);
+        }
+        return;
+      }
 
       if (fixture.expect === 'accept') {
         const envelope = unwrap(parsed);
@@ -120,10 +231,26 @@ describe('compatibility fixtures', () => {
       return;
     }
 
-    // Response fixtures are all `accept`: a valid FAILED envelope is part of the contract too.
-    expect(fixture.expect).toBe('accept');
     const result = unwrap(parseAiResult(fixture.document));
     expect(result.capability).toBe(fixture.capability);
     expect(result.capabilityVersion).toBe(fixture.capabilityVersion);
+    if (fixture.capability === 'code.debug.analyze') {
+      const input = parseCodeDebugInput(fixture.validationInput);
+      expect(input.ok, `${fixture.case}: validation input must be valid`).toBe(true);
+      if (!input.ok) {
+        return;
+      }
+      const output = validateCodeDebugOutput(result.output, input.value);
+      if (fixture.expect === 'accept') {
+        expect(output.ok, fixture.case).toBe(true);
+      } else {
+        const failure = unwrapFailure(output);
+        expect(failure.reason).toBe(fixture.reason);
+      }
+      return;
+    }
+
+    // Existing non-debug response fixtures are valid envelopes, including frozen failures.
+    expect(fixture.expect).toBe('accept');
   });
 });

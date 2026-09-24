@@ -1,0 +1,39 @@
+{
+  "fixtureSetVersion": "1.0",
+  "binding": "ILLUSTRATIVE",
+  "kind": "request",
+  "expect": "accept",
+  "capability": "code.debug.analyze",
+  "capabilityVersion": "1.0",
+  "case": "valid-code-debug-request-with-prompt-provenance",
+  "document": {
+    "contractVersion": "1.2",
+    "requestId": "req-debug-valid-01",
+    "idempotencyKey": "consumer:debug:turn-18",
+    "callerPluginId": "example.consumer",
+    "capability": "code.debug.analyze",
+    "capabilityVersion": "1.0",
+    "profile": "balanced",
+    "input": {
+      "instructions": "Classify only evidence in the submitted source and diagnostics.",
+      "context": [
+        {
+          "name": "sourceCode",
+          "label": "Submitted source",
+          "type": "STRING",
+          "untrusted": true,
+          "value": "let total = ;\nconsole.log(total);"
+        },
+        {
+          "name": "diagnostics",
+          "label": "Compiler diagnostics",
+          "type": "STRING",
+          "untrusted": true,
+          "value": "SyntaxError at line 1"
+        }
+      ]
+    },
+    "promptApplied": true,
+    "promptVersion": "debug.analysis.v1"
+  }
+}

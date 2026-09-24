@@ -1,0 +1,47 @@
+{
+  "fixtureSetVersion": "1.0",
+  "binding": "ILLUSTRATIVE",
+  "kind": "request",
+  "expect": "accept",
+  "capability": "code.debug.analyze",
+  "capabilityVersion": "1.0",
+  "case": "code-debug-v1-compatibility-mapping",
+  "note": "Stage 7 is additive within major 1. The logical specialized capability uses the existing structured primitive; request provenance/readiness metadata and colon-compatible idempotency keys are additive. Response schema and field dialect majors are unchanged.",
+  "compatibility": {
+    "contractVersion": "1.2",
+    "requestSchemaVersion": "1.2",
+    "responseSchemaVersion": "1.1",
+    "errorVersion": "1.2",
+    "descriptorVersion": "1.1",
+    "fieldDialect": "aibridge.fields/v1",
+    "logicalCapability": "code.debug.analyze",
+    "capabilityVersion": "1.0",
+    "requiredPrimitive": "ai.structured.generate",
+    "readiness": "STABLE",
+    "instructionMode": "CONSUMER_COMPOSED",
+    "colonIdempotencyKey": "consumer:debug:turn-17"
+  },
+  "document": {
+    "contractVersion": "1.2",
+    "requestId": "req-debug-compat-01",
+    "idempotencyKey": "consumer:debug:turn-17",
+    "callerPluginId": "example.consumer",
+    "capability": "code.debug.analyze",
+    "capabilityVersion": "1.0",
+    "profile": "balanced",
+    "input": {
+      "instructions": "Classify only the supplied source evidence.",
+      "context": [
+        {
+          "name": "sourceCode",
+          "label": "Submitted source",
+          "type": "STRING",
+          "untrusted": true,
+          "value": "let total = ;\nconsole.log(total);"
+        }
+      ]
+    },
+    "promptApplied": true,
+    "promptVersion": "debug.analysis.v1"
+  }
+}

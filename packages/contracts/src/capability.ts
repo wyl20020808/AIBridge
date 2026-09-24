@@ -26,12 +26,30 @@ export const CAPABILITY_AVAILABILITIES = ['AVAILABLE', 'DEGRADED', 'UNAVAILABLE'
 
 export type CapabilityAvailability = (typeof CAPABILITY_AVAILABILITIES)[number];
 
+/** Readiness is a contract maturity label, separate from runtime availability. */
+export const CAPABILITY_READINESS_VALUES = ['STABLE', 'EXPERIMENTAL', 'RESERVED'] as const;
+
+export type CapabilityReadiness = (typeof CAPABILITY_READINESS_VALUES)[number];
+
+/** This contract version only permits consumer-composed instructions. */
+export const CAPABILITY_INSTRUCTION_MODES = ['CONSUMER_COMPOSED'] as const;
+
+export type CapabilityInstructionMode = (typeof CAPABILITY_INSTRUCTION_MODES)[number];
+
 export function isCapabilityKind(value: unknown): value is CapabilityKind {
   return typeof value === 'string' && (CAPABILITY_KINDS as readonly string[]).includes(value);
 }
 
 export function isCapabilityAvailability(value: unknown): value is CapabilityAvailability {
   return typeof value === 'string' && (CAPABILITY_AVAILABILITIES as readonly string[]).includes(value);
+}
+
+export function isCapabilityReadiness(value: unknown): value is CapabilityReadiness {
+  return typeof value === 'string' && (CAPABILITY_READINESS_VALUES as readonly string[]).includes(value);
+}
+
+export function isCapabilityInstructionMode(value: unknown): value is CapabilityInstructionMode {
+  return typeof value === 'string' && (CAPABILITY_INSTRUCTION_MODES as readonly string[]).includes(value);
 }
 
 /** The two generic primitives that ship in V1. */
@@ -148,6 +166,8 @@ export type CapabilityDescriptor = {
   readonly version: string;
   readonly kind: CapabilityKind;
   readonly status: CapabilityAvailability;
+  readonly readiness?: CapabilityReadiness;
+  readonly instructionMode?: CapabilityInstructionMode;
   readonly requiredPrimitive: string;
   readonly profiles: readonly ModelProfile[];
   readonly requirements: CapabilityRequirements;
@@ -168,6 +188,8 @@ export const CAPABILITY_DESCRIPTOR_KEYS = [
   'version',
   'kind',
   'status',
+  'readiness',
+  'instructionMode',
   'requiredPrimitive',
   'profiles',
   'requirements',
@@ -297,6 +319,14 @@ export function parseCapabilityDescriptor(value: unknown, path = '$'): Validatio
   if (!isCapabilityAvailability(value['status'])) {
     issues.push(createIssue('INVALID_VALUE', at(path, 'status'), 'must be a known availability state'));
   }
+  const readiness = value['readiness'];
+  if (readiness !== undefined && !isCapabilityReadiness(readiness)) {
+    issues.push(createIssue('INVALID_VALUE', at(path, 'readiness'), 'must be a known capability readiness state'));
+  }
+  const instructionMode = value['instructionMode'];
+  if (instructionMode !== undefined && !isCapabilityInstructionMode(instructionMode)) {
+    issues.push(createIssue('INVALID_VALUE', at(path, 'instructionMode'), 'must be a known capability instruction mode'));
+  }
   if (typeof value['requiredPrimitive'] !== 'string' || value['requiredPrimitive'].length === 0) {
     issues.push(createIssue('INVALID_TYPE', at(path, 'requiredPrimitive'), 'must be a non-empty capability id'));
   }
@@ -335,6 +365,8 @@ export function parseCapabilityDescriptor(value: unknown, path = '$'): Validatio
     version: value['version'] as string,
     kind: value['kind'] as CapabilityKind,
     status: value['status'] as CapabilityAvailability,
+    ...(readiness === undefined ? {} : { readiness: readiness as CapabilityReadiness }),
+    ...(instructionMode === undefined ? {} : { instructionMode: instructionMode as CapabilityInstructionMode }),
     requiredPrimitive: value['requiredPrimitive'] as string,
     profiles: profiles.ok ? profiles.value : [],
     requirements: requirements.ok ? requirements.value : {},

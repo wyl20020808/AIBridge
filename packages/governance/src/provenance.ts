@@ -56,6 +56,9 @@ export type ReliabilityProvenance = {
   readonly callerPluginId: string;
   readonly capability: string;
   readonly capabilityVersion: string;
+  /** Opaque consumer prompt labels for this logical request only; never prompt content. */
+  readonly promptApplied?: boolean;
+  readonly promptVersion?: string;
   readonly profile: ModelProfile;
   readonly configVersion: string;
   readonly configDigest: string;

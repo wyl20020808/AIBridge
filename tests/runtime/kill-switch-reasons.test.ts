@@ -14,7 +14,7 @@
 import { describe, expect, it } from 'vitest';
 import { KillSwitchRegistry } from '@aibridge/core';
 import type { FakeStep } from '../helpers/reliability.js';
-import { callerContext, makeHarness, textTurn } from '../helpers/reliability.js';
+import { callerContext, codeDebugCallerContext, codeDebugTurn, makeHarness, textTurn } from '../helpers/reliability.js';
 
 const neverUsed = (): FakeStep => ({ kind: 'text', text: 'never used' });
 
@@ -41,6 +41,21 @@ describe('chain-exhausted kill-switch errors', () => {
     expect(result.status).toBe('FAILED');
     expect(result.error?.reason).toBe('KILL_SWITCH_CAPABILITY');
     expect(result.error?.details?.['capability']).toBe('ai.text.generate');
+  });
+
+  it('keeps the specialized capability kill switch keyed to the logical debug capability', async () => {
+    const harness = makeHarness({
+      providers: [{ id: 'primary', behavior: neverUsed }],
+      governance: { killSwitch: { global: false, providers: [], capabilities: ['code.debug.analyze'] } },
+      killSwitches: new KillSwitchRegistry(),
+    });
+
+    const result = await harness.runtime.execute(codeDebugTurn(9), codeDebugCallerContext);
+
+    expect(result.status).toBe('FAILED');
+    expect(result.error?.reason).toBe('KILL_SWITCH_CAPABILITY');
+    expect(result.error?.details?.['capability']).toBe('code.debug.analyze');
+    expect(harness.providers['primary']?.callCount).toBe(0);
   });
 
   it('a provider kill in the bound snapshot surfaces KILL_SWITCH_PROVIDER naming the provider', async () => {

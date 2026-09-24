@@ -9,6 +9,8 @@ import { describe, expect, it } from 'vitest';
 
 import {
   callerContext,
+  codeDebugCallerContext,
+  codeDebugTurn,
   makeHarness,
   script,
   structuredTurn,
@@ -204,5 +206,58 @@ describe('bounded output repair (Phase 36–38)', () => {
     expect(outcome.result.error?.reason).toBe('EXTRACTION_FAILED');
     expect(harness.providers['relay']?.callCount).toBe(1);
     expect(outcome.provenance.repairCount).toBe(0);
+  });
+});
+
+describe('code.debug.analyze@1.0 output repair', () => {
+  it.each([
+    ['an unknown issue category', { issueCategories: ['FULL_SOLUTION'], diagnosticContextRefs: ['sourceCode:1'], limitations: [] }],
+    ['a reference outside supplied source', { issueCategories: ['SYNTAX'], diagnosticContextRefs: ['sourceCode:2'], limitations: [] }],
+  ])('repairs %s through the registered structured primitive', async (_caseName, invalidOutput) => {
+    const validOutput = {
+      issueCategories: ['SYNTAX'],
+      diagnosticContextRefs: ['sourceCode:1'],
+      limitations: [],
+    };
+    const harness = makeHarness({
+      providers: [{
+        id: 'relay',
+        behavior: script(
+          { kind: 'structured', text: JSON.stringify(invalidOutput) },
+          { kind: 'structured', text: JSON.stringify(validOutput) },
+        ),
+      }],
+      governance: { outputRepair: 'ONCE' },
+    });
+
+    const outcome = await harness.runtime.executeObserved(codeDebugTurn(40), codeDebugCallerContext);
+
+    expect(outcome.result.status).toBe('SUCCEEDED');
+    expect(outcome.result.output).toEqual(validOutput);
+    expect(outcome.provenance.repairCount).toBe(1);
+    expect(harness.providers['relay']?.requests.map((request) => request.capability)).toEqual([
+      'ai.structured.generate',
+      'ai.structured.generate',
+    ]);
+  });
+
+  it('fails safely when a repaired diagnostic reference is still invalid', async () => {
+    const harness = makeHarness({
+      providers: [{
+        id: 'relay',
+        behavior: script(
+          { kind: 'structured', text: '{"issueCategories":["FULL_SOLUTION"],"diagnosticContextRefs":["sourceCode:1"],"limitations":[]}' },
+          { kind: 'structured', text: '{"issueCategories":["SYNTAX"],"diagnosticContextRefs":["sourceCode:2"],"limitations":[]}' },
+        ),
+      }],
+      governance: { outputRepair: 'ONCE' },
+    });
+
+    const outcome = await harness.runtime.executeObserved(codeDebugTurn(41), codeDebugCallerContext);
+
+    expect(outcome.result.status).toBe('FAILED');
+    expect(outcome.result.error?.reason).toBe('OUTPUT_REPAIR_EXHAUSTED');
+    expect(JSON.stringify(outcome.result)).not.toContain('FULL_SOLUTION');
+    expect(harness.providers['relay']?.callCount).toBe(2);
   });
 });

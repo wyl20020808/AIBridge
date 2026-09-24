@@ -139,6 +139,37 @@ Full rationale: [`ARCHITECTURE.md`](ARCHITECTURE.md). Capability semantics:
 > (`ai.text.generate.response.balance-exhausted.json`,
 > `ai.text.generate.request.prompt-provenance.json`); every `FROZEN` fixture parses unchanged.
 
+> **Compatibility note — commissioned Stage 7 specialized capability foundation (additive within
+> major 1).** This AIBridge-only scope adds request validation/provenance rules and descriptor
+> maturity metadata, and defines the bounded `code.debug.analyze@1.0` runtime contract. No response
+> field, error vocabulary, or field-dialect meaning changes; existing `FROZEN` fixtures retain their
+> prior meaning and outcome.
+>
+> 1. **Request provenance and idempotency rules** (§3): `promptApplied` and `promptVersion` remain
+>    optional for generic calls, but form an exact pair (`promptApplied: true` iff a valid opaque
+>    `promptVersion` is supplied; `false` cannot carry a version). Idempotency keys accept 1–128
+>    printable ASCII characters (`^[\x21-\x7E]{1,128}$`), including colon-delimited keys; spaces
+>    and control characters are rejected. Prompt labels remain provenance, not request identity.
+> 2. **Descriptor maturity metadata** (§6): optional `readiness` (`STABLE | EXPERIMENTAL |
+>    RESERVED`) and `instructionMode` (`CONSUMER_COMPOSED`) distinguish maturity and instruction
+>    ownership from deployment availability (`status`).
+> 3. **One specialized V1 runtime contract** (§1.2, §5.4): `code.debug.analyze@1.0` is the only
+>    executable specialized capability in this commissioned slice. It requires consumer prompt
+>    provenance, uses registry-owned input/output schemas, accepts only untrusted `sourceCode` and
+>    optional untrusted `diagnostics` string contexts, and is non-streaming. Its output is limited to
+>    `issueCategories`, paired `diagnosticContextRefs` into supplied context, and `limitations`;
+>    it has no prose or solution field. Routing/provider dispatch uses `ai.structured.generate`,
+>    while authorization, results, and governance retain logical identity `code.debug.analyze@1.0`.
+>    Consumers still own composed instructions, data selection/private-data exclusion, and final
+>    learner-facing interpretation. No host adapter or consumer E2E qualification is asserted here.
+>
+> Version bumps (§2): `AIBRIDGE_CONTRACT_VERSION` and `GENERIC_REQUEST_SCHEMA_VERSION`
+> `1.1` → `1.2`; `CAPABILITY_DESCRIPTOR_VERSION` `1.0` → `1.1`. Response `1.1`, error `1.2`, and
+> `aibridge.fields/v1` remain unchanged. Comparison remains major-compatible.
+>
+> Fixture impact: six new **ILLUSTRATIVE** `code.debug.analyze.*.json` fixtures exercise the
+> request, result, provenance, trust, context-reference, and compatibility boundaries.
+
 ---
 
 ## 0. What is frozen, and what is not
@@ -177,7 +208,7 @@ Full rationale: [`ARCHITECTURE.md`](ARCHITECTURE.md). Capability semantics:
 | `education.idea.evaluate` | `1.0` | education | name frozen; schema is **draft**, see §5.4 |
 | `education.hint.generate` | `1.0` | education | name frozen; schema draft |
 | `learning.summary.generate` | `1.0` | education | name frozen; schema draft |
-| `code.debug.analyze` | `1.0` | code | name frozen; schema draft |
+| `code.debug.analyze` | `1.0` | code | commissioned V1 schema/runtime foundation; host qualification pending, see §5.4 |
 | `code.explain` | `1.0` | code | name frozen; schema draft |
 | `problem.explain` | `1.0` | problem | reserved, not scheduled |
 | `problem.quest.draft` | `1.0` | problem | reserved, authoring-side, not scheduled |
@@ -194,17 +225,19 @@ Full rationale: [`ARCHITECTURE.md`](ARCHITECTURE.md). Capability semantics:
 ## 2. Version constants (frozen)
 
 ```ts
-export const AIBRIDGE_CONTRACT_VERSION        = '1.1';  // envelopes + error vocabulary
-export const AIBRIDGE_REQUEST_SCHEMA_VERSION  = '1.1';  // AiRequestEnvelope
+export const AIBRIDGE_CONTRACT_VERSION        = '1.2';  // envelopes + error vocabulary
+export const GENERIC_REQUEST_SCHEMA_VERSION   = '1.2';  // AiRequestEnvelope request field set
 export const AIBRIDGE_RESPONSE_SCHEMA_VERSION = '1.1';  // AiResult
 export const AIBRIDGE_ERROR_VERSION           = '1.2';  // AiErrorCode + AiErrorReason
+export const CAPABILITY_DESCRIPTOR_VERSION    = '1.1';  // readiness + instruction mode
 export const AIBRIDGE_FIELD_DIALECT           = 'aibridge.fields/v1';
 export const AIBRIDGE_PLUGIN_API_VERSION      = 1;
 ```
 
-`1.1` on the envelopes is the additive Stage 5 bump (see the compatibility note above) plus the
-Stage 6 request-side additions; `AIBRIDGE_ERROR_VERSION` is `1.2` for the additive Stage 6
-reason. Comparison stays major-compatible, so a `1.0` consumer is still accepted.
+The request and overall contract versions are `1.2` after the additive Stage 7 request rules; the
+response remains `1.1`, and the descriptor is `1.1` for the optional maturity/instruction fields.
+`AIBRIDGE_ERROR_VERSION` remains `1.2` for the additive Stage 6 reason. Comparison stays
+major-compatible, so a `1.0` consumer is still accepted.
 
 ### 2.1 Compatibility rule (frozen)
 
@@ -226,20 +259,22 @@ right".
 export type ModelProfile = 'fast' | 'balanced' | 'reasoning' | 'cheap' | 'high-context';
 
 export interface AiRequestEnvelope<TInput = unknown> {
-  readonly contractVersion: string;      // '1.0'
+  readonly contractVersion: string;      // '1.2'
   readonly requestId: string;            // ^[A-Za-z0-9._-]{1,64}$, unique per attempt
-  readonly idempotencyKey: string;       // ^[A-Za-z0-9._-]{1,128}$
+  readonly idempotencyKey: string;       // ^[\x21-\x7E]{1,128}$; printable ASCII, colon allowed
   readonly callerPluginId: string;       // host-bound. MUST NOT be self-declared. §8
   readonly capability: string;
   readonly capabilityVersion: string;    // '1.0'
   readonly profile: ModelProfile;
   readonly requirements?: CapabilityRequirements;
   readonly input: TInput;
-  readonly outputSchema: OutputSchema;
+  readonly outputSchema?: OutputSchema;
   readonly policyId?: string;
   readonly timeoutBudget?: TimeoutBudget;
   readonly subjectToken?: string;
   readonly metadata?: RequestMetadata;
+  readonly promptApplied?: boolean;
+  readonly promptVersion?: string;       // ^[A-Za-z0-9._-]{1,64}$; opaque provenance label
 }
 ```
 
@@ -249,18 +284,19 @@ Field rules:
 | --- | --- |
 | `contractVersion` | required. Major mismatch ⇒ reject. |
 | `requestId` | required. Unique per **attempt**. Echoed verbatim. |
-| `idempotencyKey` | required. Stable across retries of the same logical turn. Scoped to `(callerPluginId, capability, capabilityVersion)`. |
+| `idempotencyKey` | required. 1–128 printable ASCII characters (`^[\x21-\x7E]{1,128}$`); colon is allowed, whitespace/control characters are not. Stable across retries of the same logical turn and scoped to `(callerPluginId, capability, capabilityVersion)`. |
 | `callerPluginId` | required. Host-bound (§8). Missing/unverified ⇒ `PERMISSION / CALLER_NOT_PERMITTED`. |
 | `capability` | required. Unknown ⇒ `ENVELOPE / CAPABILITY_UNKNOWN`. |
 | `capabilityVersion` | required. Unsupported major ⇒ `ENVELOPE / CAPABILITY_VERSION_UNSUPPORTED`. |
 | `profile` | required. A profile, **never** a model name. |
 | `requirements` | optional. Narrows the route; never names a model. |
 | `input` | required. Capability-defined. Subject to that capability's `inputAllowList` (deny by default). |
-| `outputSchema` | required. `REF` (preferred) or `INLINE`. |
+| `outputSchema` | optional in the envelope. `ai.structured.generate` requires a caller-owned `REF` or `INLINE`; capabilities with registry-owned schemas reject caller overrides. |
 | `policyId` | optional. **Selects** a registered policy. Supplying policy *content* is always an error. |
 | `timeoutBudget` | optional. `{ totalMs, providerMs? }`. The bridge clamps **down**, never up. |
 | `subjectToken` | optional in the type; required whenever a subject dimension is configured. Opaque, host-minted. Not a session token, not an email, not a user id. |
 | `metadata` | optional. Exactly `locale`, `traceId`, `surface`, `correlationId`. Unknown key ⇒ **reject**. ≤ 512 bytes serialized. |
+| `promptApplied` / `promptVersion` | optional opaque prompt provenance pair. `true` requires `promptVersion` matching `^[A-Za-z0-9._-]{1,64}$`; a version requires `true`; `false` cannot carry a version. The label is not prompt content or request identity. `code.debug.analyze@1.0` requires the pair. |
 
 **Unknown top-level fields are rejected** (`INVALID_REQUEST` / `MALFORMED_ENVELOPE`).
 
@@ -440,11 +476,27 @@ feedback. Controlled by config (`'NONE' | 'ONCE'`, default `'ONCE'`), charged to
 
 Repair is not retry and not fallback.
 
-### 5.4 Specialized capability schemas — draft, not frozen
+### 5.4 Specialized capability schemas and commissioned debug foundation
 
-`education.idea.evaluate`, `education.hint.generate`, `learning.summary.generate`,
-`code.debug.analyze`, `code.explain` have **frozen names** and **draft schemas**. Their shape is
-settled when the first pack is implemented (Stage 8), with a compatibility note here.
+`education.idea.evaluate`, `education.hint.generate`, `learning.summary.generate`, and
+`code.explain` have **frozen names** and **draft schemas**. Their shape is settled when the
+corresponding broader pack is implemented, with a compatibility note here.
+
+`code.debug.analyze@1.0` is the narrow commissioned V1 exception: its registry-owned input/output
+schemas and runtime structural validation are implemented. The consumer supplies composed
+instructions and required opaque prompt provenance. Its input is one untrusted `sourceCode` STRING
+and optional untrusted `diagnostics` STRING context; callers must exclude hidden tests, reference
+answers, private judge metadata, and other learner data. Its closed output has only:
+
+- `issueCategories`: `SYNTAX`, `TYPE`, `BUILD`, `RUNTIME`, `LOGIC`, or `OTHER`;
+- `diagnosticContextRefs`: one 1-based line/range reference per category, bounded to supplied
+  `sourceCode` or `diagnostics` context;
+- `limitations`: `INSUFFICIENT_CONTEXT`, `AMBIGUOUS_EVIDENCE`, or `NO_RELEVANT_LOCATION`.
+
+The finding arrays have equal lengths. There is no arbitrary prose, explanation, patch, or solution
+field. Execution is non-streaming and uses the `ai.structured.generate` provider primitive, while
+permission, result, usage, and governance remain keyed to `code.debug.analyze@1.0`. Host adapter,
+grant, and prompt-provenance qualification is not included in this foundation.
 
 The `education.idea.evaluate` request/response pair is provided now as an **illustrative**
 fixture ([`fixtures/`](fixtures/) `binding: "ILLUSTRATIVE"`) so a consumer can build its
@@ -475,6 +527,8 @@ export type CapabilityDescriptor = {
   readonly version: string;
   readonly kind: 'GENERIC' | 'SPECIALIZED';
   readonly status: CapabilityAvailability;
+  readonly readiness?: 'STABLE' | 'EXPERIMENTAL' | 'RESERVED';
+  readonly instructionMode?: 'CONSUMER_COMPOSED';
   readonly requiredPrimitive: string;
   readonly profiles: readonly ModelProfile[];
   readonly requirements: CapabilityRequirements;      // additive, Stage 2 — see the compatibility note
@@ -500,6 +554,10 @@ export type AiBridgeStatus = {
   readonly capabilities: readonly { id: string; version: string; status: CapabilityAvailability }[];
 };
 ```
+
+`status` reports deployment availability; optional `readiness` reports capability maturity. They
+are independent. `instructionMode: 'CONSUMER_COMPOSED'` means the consumer authors the instructions;
+it does not transfer prompt strategy or business meaning to AI Bridge.
 
 **Not in the descriptor:** provider ids, model names, prices, endpoints. Consumers must not be
 able to develop a topology dependency.
@@ -838,8 +896,8 @@ A `reject` fixture asserts *which* `reason` is produced, so two implementations 
 | Idempotent turn handling (§10) | **NO** | Mint keys from `commandId`, assert one billable call per turn against a counting fake. |
 | Cancellation on quest close (§13) | **NO** | `CancellationToken` semantics are frozen. |
 | Rubric fallback parity | **NO** | Already built in Stage 5. Verify the `AI_UNAVAILABLE` / `AI_FAILED` ceiling (`PROMISING`) still holds under every §13.1 row. |
-| **Stage 7 — Coding Quest** | **NO** | Pure quest/blueprint work. `code.debug.analyze` is a *name* today; a coding quest can run judge-only and degrade on AI exactly like Idea Lab does. |
-| **Stage 8 — AI Debug consumer** | **NO** for the consumer half | Build the consumer and its guard against `code.debug.analyze`'s frozen *name* and an illustrative fixture. The real capability lands in AI Bridge Stage 8. |
+| **Stage 7 — Coding Quest** | **NO** | Pure quest/blueprint work. `code.debug.analyze@1.0` has a stable name and a narrow foundation separately commissioned in AI Bridge Stage 7; OJPlatform host qualification remains pending. A coding quest can still run judge-only and degrade on AI exactly like Idea Lab does. |
+| **Stage 8 — AI Debug consumer** | **NO** for the consumer half | Build the consumer and its guard against the illustrative fixtures and fakes. The narrow foundation exists under the separate AI Bridge Stage 7 commission but is not host-qualified; real-AI E2E remains AI Bridge Stage 10 and has not been run. |
 | **Stage 9 — Scoring** | **NO** | Scoring is explicitly *not* an AI capability ([`CAPABILITIES.md`](CAPABILITIES.md) §3). Deterministic work. |
 | Real-AI end-to-end | **YES** | AI Bridge Stage 10. Everything else must be already green. |
 

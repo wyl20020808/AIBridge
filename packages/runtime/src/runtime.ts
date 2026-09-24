@@ -44,8 +44,8 @@ import {
   makeStreamStarted,
   makeStreamTextDelta,
   parseConsumerAiRequest,
-  parseStructuredGenerateInput,
   parseTextGenerateInput,
+  parseStructuredGenerateInput,
   parseTrustedDispatchContext,
   providerDeadlineAt,
   isCapabilityGranted,
@@ -73,7 +73,7 @@ import {
 } from '@aibridge/contracts';
 import {
   CapabilityRegistry,
-  GENERIC_CAPABILITY_REGISTRATIONS,
+  BUILTIN_CAPABILITY_REGISTRATIONS,
   KillSwitchRegistry,
   allowsCallerOutputSchema,
   isRecord,
@@ -119,6 +119,7 @@ import {
   type RuntimeConfigSnapshot,
 } from './config-manager.js';
 import { nullOperatorLog, redactOperatorDetail, type OperatorLogSink } from './operator-log.js';
+import { parseCodeDebugInput } from './code-debug.js';
 import {
   classifyModel,
   enumerateRouteCandidates,
@@ -154,6 +155,7 @@ type DispatchPlan = {
   readonly identity: ResultIdentity;
   readonly composed: ComposedAiRequest<unknown>;
   readonly registration: CapabilityRegistration;
+  readonly requiredPrimitive: string;
   readonly candidates: readonly PlanTarget[];
   readonly preSkipped: readonly SkippedCandidate[];
   readonly modelClass: ModelClass;
@@ -240,10 +242,10 @@ export function systemClock(): Clock {
   return { nowMs: () => Date.now() };
 }
 
-/** The registry every V1 build starts from: the two generic primitives, as metadata. */
+/** The registry every V1 build starts from: generic primitives and stable specialized built-ins. */
 export function defaultCapabilityRegistry(): CapabilityRegistry {
   const registry = new CapabilityRegistry();
-  for (const registration of GENERIC_CAPABILITY_REGISTRATIONS) {
+  for (const registration of BUILTIN_CAPABILITY_REGISTRATIONS) {
     registry.register(registration);
   }
   return registry;
@@ -261,8 +263,21 @@ function unroutedProjection() {
   } as const;
 }
 
-function isExecutableCapability(capability: string): boolean {
-  return EXECUTABLE_CAPABILITIES.has(capability);
+function isExecutableCapability(
+  capability: string,
+  capabilityVersion: string,
+  registration: CapabilityRegistration,
+): boolean {
+  if (EXECUTABLE_CAPABILITIES.has(capability)) {
+    return registration.kind === 'GENERIC' && registration.requiredPrimitive === capability;
+  }
+  return capability === 'code.debug.analyze' &&
+    capabilityVersion === '1.0' &&
+    registration.kind === 'SPECIALIZED' &&
+    registration.requiredPrimitive === 'ai.structured.generate' &&
+    registration.schemaOwnership.output === 'REGISTRY' &&
+    registration.readiness === 'STABLE' &&
+    registration.instructionMode === 'CONSUMER_COMPOSED';
 }
 
 function echoString(value: unknown, fallback: string): string {
@@ -764,6 +779,7 @@ export class AiRuntime {
       idempotencyKey: plan.composed.idempotencyKey,
       capability: plan.identity.capability,
       capabilityVersion: plan.identity.capabilityVersion,
+      requiredPrimitive: plan.requiredPrimitive,
       profile: plan.composed.profile,
       callerPluginId: plan.composed.callerPluginId,
       ...(plan.composed.subjectToken === undefined ? {} : { subjectToken: plan.composed.subjectToken }),
@@ -882,7 +898,7 @@ export class AiRuntime {
             ),
       );
     }
-    if (!isExecutableCapability(call.capability)) {
+    if (!isExecutableCapability(call.capability, call.capabilityVersion, registration)) {
       return fail(
         validationFailureToAiError(
           {
@@ -892,6 +908,21 @@ export class AiRuntime {
             issues: [{ code: 'UNKNOWN_CAPABILITY', path: '$.capability', message: 'not executable in this build' }],
           },
           'This capability is not executable by this build of AI Bridge.',
+        ),
+      );
+    }
+
+    const isCodeDebug = call.capability === 'code.debug.analyze' && call.capabilityVersion === '1.0';
+    if (isCodeDebug && (call.promptApplied !== true || call.promptVersion === undefined)) {
+      return fail(
+        validationFailureToAiError(
+          {
+            reason: 'MALFORMED_ENVELOPE',
+            code: 'INVALID_REQUEST',
+            stage: 'ENVELOPE',
+            issues: [{ code: 'MISSING_FIELD', path: '$.promptVersion', message: 'consumer prompt provenance is required' }],
+          },
+          'This capability requires consumer prompt provenance.',
         ),
       );
     }
@@ -971,6 +1002,9 @@ export class AiRuntime {
         ),
       );
     }
+    if (isCodeDebug) {
+      outputSchema = registration.outputSchema;
+    }
 
     // Input safety (size → secrets → PII), then the policy allow-list, then the payload shape.
     const screened = screenAiInput(call.input, {
@@ -1015,7 +1049,14 @@ export class AiRuntime {
     let instructions: string;
     let contextValues: ContextBundle;
     let requestedMaxOutputTokens: number | undefined;
-    if (call.capability === 'ai.structured.generate') {
+    if (isCodeDebug) {
+      const parsedInput = parseCodeDebugInput(inputRecord, '$.input');
+      if (!parsedInput.ok) {
+        return fail(validationFailureToAiError(parsedInput.failure, 'The capability input is malformed.'), warnings);
+      }
+      instructions = parsedInput.value.instructions;
+      contextValues = parsedInput.value.context;
+    } else if (registration.requiredPrimitive === 'ai.structured.generate') {
       const parsedInput = parseStructuredGenerateInput(inputRecord, '$.input');
       if (!parsedInput.ok) {
         return fail(validationFailureToAiError(parsedInput.failure, 'The capability input is malformed.'), warnings);
@@ -1033,12 +1074,18 @@ export class AiRuntime {
     }
 
     // Requirement + provider resolution. Local failures only — no provider is contacted yet.
-    const requirements: CapabilityRequirements = call.requirements ?? {};
+    const requiredPrimitive = registration.requiredPrimitive;
+    const requirements: CapabilityRequirements = {
+      ...(registration.requirements ?? {}),
+      ...(call.requirements ?? {}),
+      ...(requiredPrimitive === 'ai.structured.generate' ? { structuredOutput: true } : {}),
+    };
     const scan = enumerateRouteCandidates({
       routes: snapshot.routes,
       providers: this.#providers,
       capability: call.capability,
       capabilityVersion: call.capabilityVersion,
+      requiredPrimitive,
       profile: call.profile,
       requirements,
       delivery,
@@ -1091,6 +1138,7 @@ export class AiRuntime {
         identity,
         composed: call,
         registration,
+        requiredPrimitive,
         candidates,
         preSkipped: scan.skipped,
         modelClass: candidates[0]?.modelClass ?? 'UNKNOWN',

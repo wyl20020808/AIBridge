@@ -99,13 +99,14 @@ export function unmetRequirements(
   model: ModelDescriptor,
   adapter: AiProviderAdapter,
   requirements: CapabilityRequirements,
-  options: { readonly capability: string; readonly delivery: RequirementDelivery },
+  options: { readonly capability: string; readonly requiredPrimitive?: string; readonly delivery: RequirementDelivery },
 ): readonly string[] {
   const unmet: string[] = [];
   if (!hasFeature(model, 'text')) {
     unmet.push('text');
   }
-  if (options.capability === 'ai.structured.generate' && !hasFeature(model, 'structuredJson')) {
+  const requiredPrimitive = options.requiredPrimitive ?? options.capability;
+  if (requiredPrimitive === 'ai.structured.generate' && !hasFeature(model, 'structuredJson')) {
     unmet.push('structuredOutput');
   }
   if (requirements.structuredOutput === true && !hasFeature(model, 'structuredJson')) {
@@ -133,6 +134,8 @@ export type ResolveRouteInput = {
   readonly providers: ReadonlyMap<string, BoundProvider>;
   readonly capability: string;
   readonly capabilityVersion: string;
+  /** Physical primitive used for provider feature eligibility; capability remains logical identity. */
+  readonly requiredPrimitive?: string;
   readonly profile: ModelProfile;
   readonly requirements: CapabilityRequirements;
   readonly delivery: RequirementDelivery;
@@ -227,6 +230,7 @@ export function enumerateRouteCandidates(input: ResolveRouteInput): RouteCandida
     }
     const unmet = unmetRequirements(model, bound.adapter, input.requirements, {
       capability: input.capability,
+      ...(input.requiredPrimitive === undefined ? {} : { requiredPrimitive: input.requiredPrimitive }),
       delivery: input.delivery,
     });
     if (unmet.length > 0) {

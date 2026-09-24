@@ -19,6 +19,7 @@ import {
   InMemoryRateLimitStore,
   InMemoryUsageLedger,
   QuotaManager,
+  idempotencyIdentityKey,
 } from '@aibridge/governance';
 import { ConfigManager, InMemoryConfigSnapshotStore } from '@aibridge/runtime';
 import { describe, expect, it } from 'vitest';
@@ -27,6 +28,7 @@ import { syntheticSecrets } from '../helpers/synthetic.js';
 import { callerContext, makeHarness, script, structuredTurn, textTurn, type FakeStep } from '../helpers/reliability.js';
 
 const PROMPT_TEXT = 'Explain recursion to a ten year old learner.';
+const PROMPT_VERSION = 'consumer.prompt.audit.v1';
 const LEARNER_TEXT = 'A learner described a two-pass approach.';
 const REASONING_TEXT = 'the model reasoned about pivot selection in quicksort';
 
@@ -79,7 +81,11 @@ describe('governance stores never leak content (Phase 71)', () => {
     });
 
     const outcome = await harness.runtime.executeObserved(
-      structuredTurn(1, { input: { instructions: PROMPT_TEXT, context: [{ name: 'body', label: 'Body', type: 'STRING', untrusted: true, value: LEARNER_TEXT }] } }),
+      structuredTurn(1, {
+        input: { instructions: PROMPT_TEXT, context: [{ name: 'body', label: 'Body', type: 'STRING', untrusted: true, value: LEARNER_TEXT }] },
+        promptApplied: true,
+        promptVersion: PROMPT_VERSION,
+      }),
       callerContext,
     );
     expect(outcome.result.status).toBe('SUCCEEDED');
@@ -109,17 +115,33 @@ describe('governance stores never leak content (Phase 71)', () => {
     // Metrics, events, breaker state, quota and rate state.
     expectClean('metrics', JSON.stringify(harness.metrics.totals()), forbidden);
     expectClean('operational events', JSON.stringify(harness.events.events), forbidden);
+    expectClean(
+      'high-cardinality provenance channels',
+      JSON.stringify({ metrics: harness.metrics.totals(), events: harness.events.events, providerMetadata: outcome.result.providerMetadata }),
+      [PROMPT_VERSION],
+    );
     expectClean('breaker state', JSON.stringify(harness.runtime.getProviderHealth()), forbidden);
     expectClean('quota state', JSON.stringify(await harness.quotaStore.consumed('qt|subject|unknown|TOKENS|DAY|1970-01-01')), forbidden);
     expectClean('rate state', JSON.stringify(harness.rateStore.hits('rl|global')), forbidden);
 
     // The idempotency replay cache may hold the consumer-visible result and nothing else.
-    const replayCache = JSON.stringify(await harness.idempotencyStore.get('test.caller|ai.structured.generate|1.0|turn-1'));
+    const replayCache = JSON.stringify(await harness.idempotencyStore.get(idempotencyIdentityKey({
+      callerPluginId: 'test.caller',
+      capability: 'ai.structured.generate',
+      capabilityVersion: '1.0',
+      idempotencyKey: 'turn-1',
+    })));
     expect(replayCache).toContain('two passes'); // faithful replay needs the result…
+    expect(replayCache).toContain(PROMPT_VERSION); // opaque provenance survives without storing prompt content
     expectClean('idempotency cache', replayCache, [
       secrets.OPENAI_STYLE_KEY,
       secrets.GITHUB_TOKEN,
       secrets.AWS_ACCESS_KEY_ID,
+      PROMPT_TEXT,
+      LEARNER_TEXT,
+      REASONING_TEXT,
+    ]);
+    expectClean('idempotency cache prompt label', replayCache, [
       PROMPT_TEXT,
       LEARNER_TEXT,
       REASONING_TEXT,

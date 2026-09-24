@@ -64,11 +64,29 @@ The specialized schema is provisional
 ([`../INTEGRATION_CONTRACT_V1.md`](../INTEGRATION_CONTRACT_V1.md) §5.4). Consumers must keep it
 behind one adapter boundary so a schema change is a one-file change.
 
+### `code.debug.analyze@1.0` — ILLUSTRATIVE
+
+| File | Expect | Asserts |
+| --- | --- | --- |
+| `code.debug.analyze.compatibility.json` | accept | additive version and logical/primitive identity mapping, including a colon-delimited idempotency key |
+| `code.debug.analyze.request.ok.json` | accept | consumer-composed prompt provenance and untrusted source/diagnostic contexts |
+| `code.debug.analyze.request.provenance-invalid.json` | reject | required prompt provenance pair (`MALFORMED_ENVELOPE`) |
+| `code.debug.analyze.request.trust-invalid.json` | reject | source code cannot be labelled trusted (`MALFORMED_ENVELOPE`) |
+| `code.debug.analyze.response.ok.json` | accept | closed diagnostic result with context-bound line references |
+| `code.debug.analyze.response.output-reference-invalid.json` | reject | line reference exceeds supplied context (`SCHEMA_VALIDATION_FAILED`) |
+
+The debug request parser restricts context to an untrusted `sourceCode` string and optional
+untrusted `diagnostics` string. The response fixtures carry a `validationInput` companion so each
+implementation can check references against the supplied context; this companion is fixture
+metadata, not part of the response envelope. These fixtures are illustrative compatibility data,
+not evidence of host qualification.
+
 Note on shape: `ai.structured.generate` takes `input: { instructions, context[] }` with every
-runtime value a labelled string binding. A **specialized** capability takes a typed `input`
-object instead; its pack binds those fields into the primitive's `context[]` internally, and its
-`inputAllowList` decides which keys may appear at all. That is why the `education.*` request
-fixture looks different from the `ai.*` ones — both are correct for their capability.
+runtime value a labelled string binding. The broader specialized-pack proposals use
+capability-defined typed inputs; the commissioned `code.debug.analyze@1.0` foundation retains the
+two-channel structure and restricts `context[]` to an untrusted `sourceCode` string and optional
+untrusted `diagnostics` string. Thus the illustrative `education.*` request fixture differs from
+both the generic `ai.*` and commissioned debug request shapes — each follows its declared boundary.
 
 ## How each side uses them
 

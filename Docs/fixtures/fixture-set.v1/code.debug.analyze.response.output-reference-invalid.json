@@ -1,0 +1,46 @@
+{
+  "fixtureSetVersion": "1.0",
+  "binding": "ILLUSTRATIVE",
+  "kind": "response",
+  "expect": "reject",
+  "capability": "code.debug.analyze",
+  "capabilityVersion": "1.0",
+  "case": "reject-reference-outside-supplied-context",
+  "reason": "SCHEMA_VALIDATION_FAILED",
+  "validationInput": {
+    "instructions": "Classify only evidence in the supplied source.",
+    "context": [
+      {
+        "name": "sourceCode",
+        "label": "Submitted source",
+        "type": "STRING",
+        "untrusted": true,
+        "value": "let total = ;\nconsole.log(total);"
+      }
+    ]
+  },
+  "document": {
+    "contractVersion": "1.2",
+    "requestId": "req-debug-response-invalid-01",
+    "capability": "code.debug.analyze",
+    "capabilityVersion": "1.0",
+    "status": "SUCCEEDED",
+    "output": {
+      "issueCategories": ["SYNTAX"],
+      "diagnosticContextRefs": ["sourceCode:3"],
+      "limitations": []
+    },
+    "usage": {"inputTokens": 80, "outputTokens": 10, "totalTokens": 90},
+    "providerMetadata": {
+      "providerId": "local",
+      "providerFamily": "local",
+      "modelClass": "LOCAL",
+      "routeDepth": 0,
+      "attemptCount": 1,
+      "repaired": false
+    },
+    "latencyMs": 31,
+    "finishReason": "STOP",
+    "warnings": []
+  }
+}
