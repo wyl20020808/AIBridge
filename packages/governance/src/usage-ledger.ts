@@ -116,18 +116,36 @@ export interface UsageLedgerPort {
 export class InMemoryUsageLedger implements UsageLedgerPort {
   readonly #attempts: ProviderAttemptUsageRecord[] = [];
   readonly #requests: LogicalRequestUsageRecord[] = [];
+  /** Per-list capacity. Oldest records are evicted first — the store is bounded by design. */
+  readonly #capacity: number;
+
+  constructor(options: { readonly capacity?: number } = {}) {
+    const capacity = options.capacity ?? 10_000;
+    this.#capacity = Number.isInteger(capacity) && capacity > 0 ? capacity : 10_000;
+  }
 
   get size(): number {
     return this.#attempts.length + this.#requests.length;
   }
 
+  /** Current per-list capacity bound. */
+  get capacity(): number {
+    return this.#capacity;
+  }
+
   appendAttempt(record: ProviderAttemptUsageRecord): Promise<void> {
     this.#attempts.push(record);
+    while (this.#attempts.length > this.#capacity) {
+      this.#attempts.shift();
+    }
     return Promise.resolve();
   }
 
   appendRequest(record: LogicalRequestUsageRecord): Promise<void> {
     this.#requests.push(record);
+    while (this.#requests.length > this.#capacity) {
+      this.#requests.shift();
+    }
     return Promise.resolve();
   }
 
