@@ -11,6 +11,7 @@
  */
 import { makeAiError, type AiError } from '@aibridge/contracts';
 import type { Clock } from '@aibridge/host-sdk';
+import type { CostEstimate } from './cost.js';
 import type { QuotaManager, QuotaRequest, QuotaReservation } from './quota.js';
 
 export const BUDGET_METERS = ['PER_REQUEST', 'PER_DAY', 'PER_MONTH'] as const;
@@ -110,11 +111,28 @@ export class BudgetTracker {
   }
 
   /** The pre-dispatch budget gate. `policy` overrides the construction-time policy (Phase 42). */
-  async check(request: QuotaRequest, estimatedRequestCost?: number, policy: BudgetPolicy = this.#policy): Promise<BudgetDecision> {
+  async check(
+    request: QuotaRequest,
+    estimatedRequestCost?: number | CostEstimate,
+    policy: BudgetPolicy = this.#policy,
+  ): Promise<BudgetDecision> {
     const spent = await this.spent(request);
+    const estimate: CostEstimate | undefined =
+      estimatedRequestCost === undefined
+        ? undefined
+        : typeof estimatedRequestCost === 'number'
+          ? { amount: estimatedRequestCost, basis: 'ESTIMATED_FROM_PRICING' as const }
+          : estimatedRequestCost;
+    // A definite currency mismatch is an unknown budget (GOVERNANCE.md §6): the numeric
+    // comparison refuses to guess, so the estimate is dropped and only spent is enforced.
+    const currencyMatches =
+      policy.currency !== undefined && estimate?.currency !== undefined
+        ? policy.currency === estimate.currency
+        : undefined;
     return checkRequestBudget({
       policy,
-      ...(estimatedRequestCost === undefined ? {} : { estimatedRequestCost }),
+      ...(estimate?.amount === undefined || currencyMatches === false ? {} : { estimatedRequestCost: estimate.amount }),
+      ...(currencyMatches === undefined ? {} : { currencyMatches }),
       spentToday: spent.today,
       spentThisMonth: spent.month,
     });

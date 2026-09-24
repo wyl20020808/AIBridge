@@ -59,7 +59,7 @@ export type DispatchVerdict =
 /** One breaker: `providerId + modelAlias`. */
 export class CircuitBreaker {
   readonly key: string;
-  readonly #config: Required<BreakerConfig>;
+  #config: Required<BreakerConfig>;
   readonly #clock: Clock;
   #state: BreakerState = 'CLOSED';
   #failures: number[] = [];
@@ -135,6 +135,11 @@ export class CircuitBreaker {
     }
   }
 
+  /** Retune thresholds without losing observed state: failures, open/half-open and counts survive. */
+  reconfigure(config: BreakerConfig = {}): void {
+    this.#config = resolveBreakerConfig(config);
+  }
+
   snapshot(): BreakerSnapshot {
     this.#refresh();
     const nowMs = this.#clock.nowMs();
@@ -179,13 +184,24 @@ export type BreakerRegistryOptions = {
 
 /** The per-(provider, model alias) breaker table. */
 export class CircuitBreakerRegistry {
-  readonly #config: BreakerConfig;
+  #config: BreakerConfig;
   readonly #clock: Clock;
   readonly #breakers = new Map<string, CircuitBreaker>();
 
   constructor(options: BreakerRegistryOptions) {
     this.#config = options.config ?? {};
     this.#clock = options.clock;
+  }
+
+  /**
+   * Retune every breaker — existing and future — without resetting observed state.
+   * Reload applies this so a tuning-only config change takes effect on the live table.
+   */
+  reconfigure(config: BreakerConfig = {}): void {
+    this.#config = config;
+    for (const breaker of this.#breakers.values()) {
+      breaker.reconfigure(config);
+    }
   }
 
   /** The stable key: one model's failure never disables a provider's other models (Phase 11). */
