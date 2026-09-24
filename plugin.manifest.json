@@ -20,10 +20,10 @@
   "consumesCapabilities": [],
 
   "contractVersions": {
-    "aiBridge": "1.1",
-    "genericAiRequest": "1.0",
+    "aiBridge": "1.2",
+    "genericAiRequest": "1.2",
     "genericAiResponse": "1.1",
-    "aiError": "1.1"
+    "aiError": "1.2"
   },
 
   "stage": "STAGE_6_OJPLATFORM_HOST_INTEGRATION",

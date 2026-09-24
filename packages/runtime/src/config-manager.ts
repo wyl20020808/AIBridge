@@ -750,6 +750,9 @@ export type ConfigManagerOptions = {
   readonly store?: ConfigSnapshotStorePort;
 };
 
+/** Walk-back window for `history()`/`rollback()`: generations accumulate on every reload. */
+export const CONFIG_HISTORY_LIMIT = 20;
+
 /**
  * The configuration manager: validated-first, atomic, rollback-able (Phase 41–43).
  *
@@ -824,13 +827,15 @@ export class ConfigManager {
 
   /** Roll back to the previously active snapshot (Phase 43). */
   async rollback(): Promise<ValidationResult<RuntimeConfigSnapshot>> {
-    const previous = this.#history[this.#history.length - 1];
+    const previous = this.#history.pop();
     if (previous === undefined || this.#active === null) {
       return invalid('MALFORMED_ENVELOPE', [
         issue('MISSING_FIELD', '$', 'there is no previous configuration to roll back to'),
       ]);
     }
-    this.#history.push(this.#active);
+    // The restored entry leaves the history: consecutive rollbacks walk back through
+    // generations (N → N-1 → N-2) instead of replaying one. The displaced generation is
+    // dropped — rollback is revert, not undo/redo — and a later reload pushes fresh history.
     this.#active = previous;
     await this.#store.push(previous);
     this.#events.emit({
@@ -852,6 +857,10 @@ export class ConfigManager {
   #activate(snapshot: RuntimeConfigSnapshot): void {
     if (this.#active !== null) {
       this.#history.push(this.#active);
+      // Generations accumulate on every reload; keep the walk-back window bounded.
+      while (this.#history.length > CONFIG_HISTORY_LIMIT) {
+        this.#history.shift();
+      }
     }
     this.#active = snapshot;
     this.#counter += 1;

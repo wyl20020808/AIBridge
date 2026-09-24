@@ -121,6 +121,7 @@ export {
 export {
   ConfigManager,
   InMemoryConfigSnapshotStore,
+  CONFIG_HISTORY_LIMIT,
   canonicalJson,
   compileFallbackIssues,
   compileRoutes,

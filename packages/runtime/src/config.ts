@@ -468,6 +468,17 @@ export function semanticIssues(
         issue('INVALID_VALUE', `${providerPath}.wireProtocol`, `preset "${provider.preset}" requires ${expectedProtocol}`),
       );
     }
+    // The OpenAI official adapter speaks Bearer over the Responses API, unconditionally: an
+    // explicit auth override on that preset would be silently dropped, so it is a config error.
+    if (
+      provider.preset === 'OPENAI_OFFICIAL' &&
+      provider.authScheme !== undefined &&
+      provider.authScheme !== 'BEARER'
+    ) {
+      issues.push(
+        issue('INVALID_VALUE', `${providerPath}.authScheme`, 'preset "OPENAI_OFFICIAL" requires BEARER'),
+      );
+    }
     if (provider.endpoint.kind === 'PRESET' && provider.endpoint.cluster !== undefined && provider.preset !== 'XIAOMI_TOKENPLAN') {
       issues.push(issue('INVALID_VALUE', `${providerPath}.endpoint.cluster`, 'only the XIAOMI_TOKENPLAN preset has clusters'));
     }
