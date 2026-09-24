@@ -12,11 +12,11 @@ Per-stage acceptance reports are in [`reports/`](reports/).
 | 3 | Provider runtime & reference adapter | **PASS** |
 | 4 | Provider suite & multi-provider qualification | **PASS** |
 | 5 | Reliability, Fallback & Governance | **PASS** |
-| 6 | Reliability | not started |
-| 7 | Usage + rate limits | not started |
+| 6 | OJPlatform host integration + site-wide AI capability broker (includes the durable host-store adapters from the old "Reliability durability" row — see the ROADMAP renumbering notes) | **PASS** |
+| 7 | Usage + cost durability (pricing-history retention, operator reporting exports) | not started |
 | 8 | Specialized capability packs | not started |
-| 9 | OJPlatform integration | not started |
-| 10 | AlgoQuest real-AI E2E | not started |
+| 9 | AlgoQuest real-AI E2E | not started — explicitly **not** started after Stage 6 |
+| 10 | — | — |
 
 See [`ROADMAP.md`](ROADMAP.md) for the stage definitions and the Stage 2 checklist.
 
