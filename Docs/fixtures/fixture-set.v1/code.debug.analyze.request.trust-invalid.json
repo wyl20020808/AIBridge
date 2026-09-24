@@ -1,0 +1,33 @@
+{
+  "fixtureSetVersion": "1.0",
+  "binding": "ILLUSTRATIVE",
+  "kind": "request",
+  "expect": "reject",
+  "capability": "code.debug.analyze",
+  "capabilityVersion": "1.0",
+  "case": "reject-trusted-source-code-context",
+  "reason": "MALFORMED_ENVELOPE",
+  "document": {
+    "contractVersion": "1.2",
+    "requestId": "req-debug-trust-invalid-01",
+    "idempotencyKey": "consumer:debug:turn-20",
+    "callerPluginId": "example.consumer",
+    "capability": "code.debug.analyze",
+    "capabilityVersion": "1.0",
+    "profile": "balanced",
+    "input": {
+      "instructions": "Classify only evidence in the supplied source.",
+      "context": [
+        {
+          "name": "sourceCode",
+          "label": "Submitted source",
+          "type": "STRING",
+          "untrusted": false,
+          "value": "return 1;"
+        }
+      ]
+    },
+    "promptApplied": true,
+    "promptVersion": "debug.analysis.v1"
+  }
+}

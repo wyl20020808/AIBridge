@@ -1,0 +1,52 @@
+{
+  "fixtureSetVersion": "1.0",
+  "binding": "ILLUSTRATIVE",
+  "kind": "response",
+  "expect": "accept",
+  "capability": "code.debug.analyze",
+  "capabilityVersion": "1.0",
+  "case": "valid-closed-code-debug-result",
+  "validationInput": {
+    "instructions": "Classify only evidence in the supplied source.",
+    "context": [
+      {
+        "name": "sourceCode",
+        "label": "Submitted source",
+        "type": "STRING",
+        "untrusted": true,
+        "value": "let total = ;\nconsole.log(total);"
+      },
+      {
+        "name": "diagnostics",
+        "label": "Compiler diagnostics",
+        "type": "STRING",
+        "untrusted": true,
+        "value": "SyntaxError at line 1"
+      }
+    ]
+  },
+  "document": {
+    "contractVersion": "1.2",
+    "requestId": "req-debug-response-ok-01",
+    "capability": "code.debug.analyze",
+    "capabilityVersion": "1.0",
+    "status": "SUCCEEDED",
+    "output": {
+      "issueCategories": ["SYNTAX", "RUNTIME"],
+      "diagnosticContextRefs": ["sourceCode:1", "diagnostics:1"],
+      "limitations": ["AMBIGUOUS_EVIDENCE"]
+    },
+    "usage": {"inputTokens": 96, "outputTokens": 18, "totalTokens": 114},
+    "providerMetadata": {
+      "providerId": "local",
+      "providerFamily": "local",
+      "modelClass": "LOCAL",
+      "routeDepth": 0,
+      "attemptCount": 1,
+      "repaired": false
+    },
+    "latencyMs": 35,
+    "finishReason": "STOP",
+    "warnings": []
+  }
+}

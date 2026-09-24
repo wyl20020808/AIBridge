@@ -20,6 +20,15 @@ Per-stage acceptance reports are in [`reports/`](reports/).
 
 See [`ROADMAP.md`](ROADMAP.md) for the stage definitions and the Stage 2 checklist.
 
+## Commissioned Stage 7 — specialized capability foundation
+
+**PARTIAL** — the bounded `code.debug.analyze@1.0` runtime foundation is implemented and
+verified in AI Bridge. This separately commissioned scope does not renumber or close the legacy
+Stage 7 usage/cost durability row, broader Stage 8 pack programme, or Stage 9 AlgoQuest real-AI
+E2E row. The OJPlatform adapter/grant/provenance qualification gap and the
+deliberately unrun real AlgoQuest E2E keep the commissioned qualification partial. See
+[`reports/STAGE_7_SPECIALIZED_CAPABILITY_REPORT.md`](reports/STAGE_7_SPECIALIZED_CAPABILITY_REPORT.md).
+
 ## What exists today
 
 - [`ARCHITECTURE.md`](ARCHITECTURE.md) — responsibility split (`AI_BRIDGE_`, `HOST_`,
@@ -28,12 +37,11 @@ See [`ROADMAP.md`](ROADMAP.md) for the stage definitions and the Stage 2 checkli
   three-deadline timeout model, idempotency, rate limit vs quota, usage/cost, storage split,
   kill switches, portability rules, package structure, manifest identity, six-part versioning,
   and the eight-item Host Capability Gap list.
-- [`CAPABILITIES.md`](CAPABILITIES.md) — two-layer capability model, the two V1 generic
-  primitives, the deferred/rejected primitive list, specialized pack definitions for education,
-  code, problem and learning, the generic-vs-specialized decision table, `CapabilityRegistry`,
-  and capability discovery.
+- [`CAPABILITIES.md`](CAPABILITIES.md) — two generic primitives and the separately commissioned,
+  bounded `code.debug.analyze@1.0` foundation; other education, code, problem and learning packs
+  remain future proposals; capability registry and discovery model.
 - [`INTEGRATION_CONTRACT_V1.md`](INTEGRATION_CONTRACT_V1.md) — the **frozen** parallel contract
-  with the `GenericAiPort` mapping and the AlgoQuest failure semantics.
+  with additive request/descriptor updates, the `GenericAiPort` mapping and consumer failure semantics.
 - [`SECURITY.md`](SECURITY.md) — trust boundaries, secret custody, input safety (reject secrets,
   redact PII), context security with deny-by-default allow-lists, caller identity, permission
   model, log redaction, structural vs business output safety, denial-of-wallet controls.
@@ -47,7 +55,8 @@ See [`ROADMAP.md`](ROADMAP.md) for the stage definitions and the Stage 2 checkli
   and budget.
 - [`USAGE_AND_COST.md`](USAGE_AND_COST.md) — usage ledger, pinned pricing records, cost estimation.
 - [`CONFIG_RELOAD.md`](CONFIG_RELOAD.md) — runtime config snapshots, atomic reload and rollback.
-- [`fixtures/`](fixtures/) — ten compatibility fixtures across two capability families.
+- [`fixtures/`](fixtures/) — 18 compatibility fixtures across generic, education and commissioned
+  code-debug examples.
 - [`ROADMAP.md`](ROADMAP.md) — Stages 1–10, the Stage 2 checklist, the AlgoQuest parallel plan.
 - `plugin.manifest.json` — host-neutral identity `ai.bridge`, `"entry": null`.
 
@@ -277,7 +286,7 @@ Stage 5 added one package and extended the runtime — no provider, no UI, no pr
 | Real provider connected | **TEST PATH ONLY** — opt-in live harness; relay row live-qualified. No provider in any production user flow |
 | API key configured | **NEVER COMMITTED** — `credentialRef` handles resolved through the trusted secret boundary |
 | Providers implemented | **4** (OpenAI Official, DeepSeek Official, Xiaomi Token Plan, Generic Relay) |
-| Tests | **473** passing (151 suites) — Stage 1–4 suites green |
+| Tests | **558** passing (50 test files), including the commissioned debug capability regressions |
 | UI | **NOT ALLOWED** ([`AGENTS.md`](../AGENTS.md) §6) |
 | Production runtime changed | **NO** |
 | Host modified | **NO** |

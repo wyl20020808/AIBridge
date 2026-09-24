@@ -18,7 +18,7 @@ Stage 1 (this one) is **architecture only** — see [`PROJECT_STATUS.md`](PROJEC
 | 5 | **Reliability, Fallback & Governance** | ExecutionCoordinator, fallback/retry/repair, circuit breaker + health, idempotency, rate limit, quota, usage ledger + cost, budget, atomic config reload, observability | 4 |
 | 6 | **Reliability durability** | *(retry, fallback, repair, idempotency and the breaker were delivered in Stage 5 — see the renumbering note)* — durable idempotency/usage stores as host adapters, clustered breaker state, stream fallback before the first delta | 5 |
 | 7 | **Usage + cost durability** | *(ledger, cost, rate, quota and observability were delivered in Stage 5 — see the renumbering note)* — durable quota/rate counters, pricing-history retention, operator reporting exports | 6 |
-| 8 | **Specialized capability packs** | `@aibridge/capabilities`: `education.idea.evaluate`, `education.hint.generate`, `learning.summary.generate`, `code.debug.analyze`, `code.explain`; `CapabilityRegistry`; discovery | 7 |
+| 8 | **Specialized capability packs** | `@aibridge/capabilities`: `education.idea.evaluate`, `education.hint.generate`, `learning.summary.generate`, `code.debug.analyze`, `code.explain`; `CapabilityRegistry`; discovery (the narrow commissioned debug foundation below does not close this broader pack stage) | 7 |
 | 9 | **OJPlatform integration** | `@aibridge/adapter-ojplatform`, host manifest projection, capability broker gap closure **in the host** (separate approved change) | 8 |
 | 10 | **AlgoQuest real-AI E2E** | Idea Lab against a real provider through the bridge; rubric-fallback parity under real failures | 9 |
 
@@ -39,6 +39,16 @@ reaches the widest set of vendors — but only after it is **probed**, never ass
 > "Stage 6" plan; the usage ledger, cost, rate limits, quotas and observability from the old
 > "Stage 7" plan. The remaining work for later stages is durable storage, host integration,
 > capability packs and UI.
+
+## Commissioned Stage 7 — specialized capability foundation
+
+This separately commissioned, AIBridge-only scope implements the bounded
+`code.debug.analyze@1.0` foundation on the existing runtime and structured-generation primitive.
+It preserves the historical workbench numbers above: legacy Stage 7 usage/cost durability remains
+open, and legacy Stage 8 still covers broader specialized packs. This narrow foundation is
+**PARTIAL** pending separately approved OJPlatform adapter/grant/provenance qualification; no real
+AlgoQuest consumer E2E was run. See
+[`reports/STAGE_7_SPECIALIZED_CAPABILITY_REPORT.md`](reports/STAGE_7_SPECIALIZED_CAPABILITY_REPORT.md).
 
 ---
 
@@ -353,7 +363,7 @@ Detail and contract mapping: [`INTEGRATION_CONTRACT_V1.md`](INTEGRATION_CONTRACT
 | --- | --- | --- |
 | **6 — AI capability consumer** | **NO** | Build against `GenericAiPort` + the frozen mapping (§12). Back it with `ScriptedIdeaAiProvider` (already exists in AlgoQuest `host-sdk`) and a fixture-driven fake that emits `fixture-set.v1` documents. |
 | **7 — Coding Quest** | **NO** | Pure quest/blueprint work. `code.debug.analyze` is a frozen *name*; a coding quest runs judge-only and degrades on AI exactly as Idea Lab does. |
-| **8 — AI Debug consumer** | **NO** for the consumer half | Guard, degradation and evidence are all buildable now against an illustrative fixture. The real capability lands in AI Bridge Stage 8. |
+| **8 — AI Debug consumer** | **NO** for the consumer half | Guard, degradation and evidence remain consumer work. A narrow `code.debug.analyze@1.0` foundation was commissioned separately as AI Bridge Stage 7, but host adapter/grant/provenance qualification is incomplete; no real consumer E2E was run. |
 | **9 — Scoring** | **NO** | Scoring is explicitly not an AI capability ([`CAPABILITIES.md`](CAPABILITIES.md) §3). |
 | Real-AI E2E | **YES** | AI Bridge Stage 10. Everything above must already be green. |
 

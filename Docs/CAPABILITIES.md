@@ -22,6 +22,11 @@ The layer split exists so that "general" does not mean "a complete AI platform" 
 > byte-identical record and `CONFLICTING_REGISTRATION` otherwise. The two V1 generic primitives are
 > registered as metadata (`GENERIC_CAPABILITY_REGISTRATIONS`); neither policy carries a business
 > rule. See [`CONTRACTS.md`](CONTRACTS.md) §10–13.
+>
+> **Commissioned Stage 7 exception.** `code.debug.analyze@1.0` is also registered as stable,
+> consumer-composed metadata and has a narrowly built-in path through the existing runtime. Its
+> static validation is capability-specific; this does not add a `handler` field, dynamic handler
+> registry, or capability-pack package. Broader specialized packs remain future work.
 
 > **Stage 4 status.** The provider suite changes nothing here — deliberately. Providers are
 > plumbing; capabilities are contracts. A consumer still requests `capability + profile +
@@ -97,15 +102,16 @@ capability policy or the consumer's guard ([`ARCHITECTURE.md`](ARCHITECTURE.md) 
 
 ### 2.1 The relationship
 
-A specialized capability is **not** a second transport and **not** a business function. It is a
-*contract + policy + prompt strategy* layered over exactly one generic primitive.
+A specialized capability is **not** a second transport or a home for consumer business behavior.
+AI Bridge owns its versioned schemas, structural policy, and required generic primitive. The
+consumer owns composed instructions, teaching/debug strategy, host-data selection, and final
+learner-facing interpretation and guard.
 
 ```
 Specialized capability =
       versioned input schema
     + versioned output schema
-    + policy                    (incl. business safety rules)
-    + prompt strategy           (owned here, versioned here)
+    + structural policy         (closed, mechanically enforced rules)
     + required generic primitive
 ```
 
@@ -116,13 +122,15 @@ education.idea.evaluate  @1.0
     requires: ai.structured.generate
     inputSchema:   education.idea.evaluate.input@1.0
     outputSchema:  education.idea.evaluate.output@1.0
-    policy:        education-idea-evaluate-v1
-    promptStrategy: education-idea-evaluate/v1
+    structuralPolicy: registry-owned
 ```
 
-The primitive does the transport, extraction and structural validation. The pack does the
-*meaning*: what counts as progress, what must never be revealed, which rubric vocabulary the
-answer uses.
+The primitive does the transport, extraction and structural validation. A specialized descriptor
+declares a reusable schema and enforceable structure; it does not transfer prompt content or
+business strategy to AI Bridge. The consumer composes the instructions and chooses public context,
+then interprets the bounded result under its own guard. For `code.debug.analyze@1.0`, the bridge
+mechanically constrains categories, supplied-context line references, input trust, and output
+shape, but does not decide the teaching response.
 
 ### 2.2 Naming rule — domain-namespaced, never product-namespaced
 
@@ -133,10 +141,9 @@ Rationale: the day a second teaching product wants "evaluate a learner's idea ag
 it should call the same capability. A capability named after one product cannot be reused
 without a lie baked into its identifier.
 
-A product-specific *policy* is fine and expected:
-`education.idea.evaluate` may have policies `algoquest-tutor-v1` and `other-school-v1` side by
-side, selected by `policyId`. The **capability** is shared; the **policy** is where a product's
-voice and safety rules live.
+The consumer's product voice belongs in its composed instructions and final guard. A `policyId`,
+where declared, selects only a registry-owned policy; it is not a prompt or a channel for importing
+consumer business rules into AI Bridge.
 
 ### 2.3 Consumer selection rules
 
@@ -161,7 +168,7 @@ See [`INTEGRATION_CONTRACT_V1.md`](INTEGRATION_CONTRACT_V1.md) §9 for the fallb
 | "Generate any summary of this text." | **`ai.text.generate`** — arbitrary output, no shared shape, no policy claim. |
 | "Give me JSON with these three fields for my own internal bookkeeping." | **`ai.structured.generate`** — private shape, structural safety only. |
 | "Assess a student's algorithm idea against an education rubric and ask one next question." | **`education.idea.evaluate`** — shared, reusable, policy-governed judgement. |
-| "Analyse compile errors and return a strict debug schema." | **`code.debug.analyze`** — shared shape + a policy about never handing over the full fix. |
+| "Classify bounded evidence from supplied code/diagnostics." | **`code.debug.analyze@1.0`** — registry-owned closed categories, paired supplied-context line references, and limitations; no prose or solution output. |
 | "Explain this code to a learner." | **`code.explain`** — shared + policy ("explain, don't solve"). |
 | "Draft a quest for a problem." | **`problem.quest.draft`** — future, authoring-facing. |
 | "Write a paragraph of encouragement." | **`ai.text.generate`** — the consumer owns its own voice. |
@@ -209,6 +216,10 @@ cancellation mid-token.
 
 ### 5.1 Registration record
 
+The following is a **future design sketch**, not the current `CapabilityRegistration` type or a
+public runtime extension point. The implemented registry stores metadata only; the commissioned
+debug capability uses a built-in static validator rather than a registered handler.
+
 ```ts
 export type CapabilityRegistration = {
   readonly id: string;                  // 'education.idea.evaluate'
@@ -222,7 +233,7 @@ export type CapabilityRegistration = {
   readonly requiredPrimitive: 'ai.text.generate' | 'ai.structured.generate';
 
   readonly policy: CapabilityPolicy;    // id + version + rules. See §5.2.
-  readonly handler: CapabilityHandler;  // pure: (input, ctx) => output | AiError
+  readonly handler: CapabilityHandler;  // proposed only; not implemented or dynamically registered
 
   readonly profiles: readonly ModelProfile[];
   readonly limits: CapabilityLimits;
@@ -253,17 +264,17 @@ export type CapabilityPolicy = {
 };
 ```
 
-`forbiddenOutput` is where business safety lives at the capability layer: "never give a child the
-complete answer" is a rule of `education.idea.evaluate`, **not** of `ai.structured.generate`.
-The generic layer must not grow business rules; that is how a generic bridge becomes a
-product-specific mess.
+This is a proposed extension for future packs, not the mechanism used by the commissioned debug
+foundation. AI Bridge's current structural validators enforce shape and closed values; consumers
+own business safety claims, prompt strategy, and final interpretation. The generic layer must not
+grow business rules; that is how a generic bridge becomes product-specific.
 
-### 5.3 `CapabilityHandler`
+### 5.3 Proposed `CapabilityHandler` (not implemented)
 
 ```ts
 export type CapabilityHandler = (
   input: unknown,
-  ctx: CapabilityContext,     // prompt strategy access, policy, deadline, cancellation
+  ctx: CapabilityContext,     // future design only; not a runtime API
 ) => Promise<HandlerOutcome>;
 
 export type HandlerOutcome =
@@ -271,9 +282,8 @@ export type HandlerOutcome =
   | { readonly ok: false; readonly error: AiError };
 ```
 
-A handler calls **only** its `requiredPrimitive`. Calling another specialized capability is
-forbidden (no capability chains), which keeps latency, budget and failure semantics
-comprehensible.
+This handler system is not implemented. The current `code.debug.analyze@1.0` path directly uses
+the existing coordinator and its declared primitive; no dynamic capability chaining is available.
 
 ### 5.4 `CapabilityLimits`
 
@@ -315,6 +325,8 @@ export type CapabilityDescriptor = {
   readonly version: string;
   readonly kind: 'GENERIC' | 'SPECIALIZED';
   readonly status: CapabilityAvailability;    // 'AVAILABLE'|'DEGRADED'|'UNAVAILABLE'|'DISABLED'
+  readonly readiness?: 'STABLE' | 'EXPERIMENTAL' | 'RESERVED';
+  readonly instructionMode?: 'CONSUMER_COMPOSED';
   readonly requiredPrimitive: string;
   readonly profiles: readonly ModelProfile[];
   readonly requirements: CapabilityRequirements;
@@ -327,6 +339,10 @@ export type CapabilityDescriptor = {
   readonly schemaOwnership: SchemaOwnership;
 };
 ```
+
+`status` is deployment availability; optional `readiness` is maturity, and they are independent.
+`instructionMode: 'CONSUMER_COMPOSED'` declares that the consumer authors instructions; Bridge
+does not own consumer prompt strategy.
 
 **Deliberately absent from the descriptor:** provider ids, model names, prices, endpoints, keys.
 A consumer that learns the topology starts depending on it.
@@ -350,7 +366,9 @@ before the call is made.
 
 ## 7. Capability packs
 
-All designed here. **None implemented in this stage.**
+The tables below retain the broader pack proposals. The separately commissioned bounded
+`code.debug.analyze@1.0` V1 foundation is implemented; the other listed packs and the dynamic
+handler architecture are not.
 
 ### 7.1 Education pack
 
@@ -375,12 +393,13 @@ trusts it**.
 
 | Capability | Requires | Input | Output | Policy owns |
 | --- | --- | --- | --- | --- |
-| `code.debug.analyze@1.0` | `ai.structured.generate` | learner's source (untrusted), language, public verdict, public failing-sample ordinals, public compile diagnostics | hypotheses[] · nextQuestion · declaresSolution | never hand over the corrected program; hypotheses are ranked questions, not patches |
+| `code.debug.analyze@1.0` | `ai.structured.generate` | exactly one untrusted `sourceCode` STRING context; optional untrusted `diagnostics` STRING context | `issueCategories[]` · paired `diagnosticContextRefs[]` · `limitations[]`; no prose or solution | Bridge enforces closed values, paired lengths, supplied-context line bounds, trust and size; consumer owns instructions, public-data selection, teaching/debug strategy and final guard |
 | `code.explain@1.0` | `ai.structured.generate` | source (untrusted), language, level | explanation sections · declaresSolution | explain, do not solve |
 
-**Context rule for the code pack:** input must **not** contain hidden testcases, judge secret
-data, reference answers, or checker internals. The capability's `inputAllowList` makes this
-mechanical, and [`SECURITY.md`](SECURITY.md) §3.3 forbids AI Bridge from fetching them.
+**Code-debug input rule:** contexts are limited to `sourceCode` and optional `diagnostics`, each a
+STRING marked `untrusted: true`. The consumer must exclude hidden testcases, judge-private
+metadata, reference answers, checker internals, and other learner data. AI Bridge does not fetch
+host data; the specialized parser enforces permitted context names and trust labels.
 
 ### 7.3 Problem pack (future)
 
