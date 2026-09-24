@@ -248,7 +248,7 @@ describe('invalid credential, quota/rate errors and secret masking', () => {
     const cases: ReadonlyArray<readonly [number, string, string]> = [
       [401, '{"error":{"message":"Invalid API Key","type":"invalid_request_error"}}', 'PROVIDER_AUTH_FAILED'],
       [429, '{"error":{"message":"Rate limit exceeded","type":"rate_limit_error"}}', 'PROVIDER_THROTTLED'],
-      [429, '{"error":{"message":"Quota exhausted","type":"insufficient_quota"}}', 'PROVIDER_AUTH_FAILED'],
+      [429, '{"error":{"message":"Quota exhausted","type":"insufficient_quota"}}', 'PROVIDER_BALANCE_EXHAUSTED'],
     ];
     for (const [status, body, reason] of cases) {
       const fake = makeFake();

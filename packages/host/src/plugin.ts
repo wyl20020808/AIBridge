@@ -170,7 +170,12 @@ class ServerPlugin implements AiBridgeServerPlugin {
   readonly directory: AiCapabilityDirectory;
   readonly #options: AiBridgeServerPluginOptions;
   readonly #configManager: ConfigManager;
-  readonly #killSwitches = new KillSwitchRegistry();
+  /**
+   * The ONE kill-switch registry, shared with the runtime and the capability directory. The
+   * constructor receives the instance `create()` built — a field initializer here would silently
+   * fork the state: reloads would apply to a registry nothing executes against.
+   */
+  readonly #killSwitches: KillSwitchRegistry;
   readonly #capabilities: CapabilityRegistry;
   #runtime: AiRuntime;
   #disposed = false;
@@ -186,6 +191,7 @@ class ServerPlugin implements AiBridgeServerPlugin {
   ) {
     this.#options = options;
     this.#configManager = configManager;
+    this.#killSwitches = killSwitches;
     this.#capabilities = capabilities;
     this.manifest = aibridgePluginManifest(options.pluginVersion);
     this.providesCapabilities = [...this.manifest.providesCapabilities];

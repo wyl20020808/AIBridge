@@ -35,6 +35,7 @@ const EXPECTED_FILES = [
   'ai.structured.generate.request.unknown-metadata.json',
   'ai.structured.generate.response.ok.json',
   'ai.structured.generate.response.schema-mismatch.json',
+  'ai.text.generate.response.balance-exhausted.json',
   'ai.text.generate.response.ok.json',
   'ai.text.generate.response.reliability.json',
   'education.idea.evaluate.request.ok.json',

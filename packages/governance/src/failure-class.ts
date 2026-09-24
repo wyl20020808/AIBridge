@@ -93,6 +93,9 @@ const CLASS_BY_REASON: Readonly<Partial<Record<AiErrorReason, FailureClass>>> = 
   PROVIDER_BAD_RESPONSE: 'PROVIDER_TRANSIENT',
 
   PROVIDER_AUTH_FAILED: 'PROVIDER_PERMANENT',
+  // A depleted balance is one wallet's problem, not the request's or the deployment's — the
+  // class is permanent-for-this-provider, and `decideFallback` names the exact chase rule.
+  PROVIDER_BALANCE_EXHAUSTED: 'PROVIDER_PERMANENT',
 
   CANCELLED_BY_CALLER: 'CANCELLED',
   CANCELLED_BY_HOST: 'CANCELLED',

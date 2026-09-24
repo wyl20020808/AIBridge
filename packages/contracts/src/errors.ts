@@ -62,6 +62,9 @@ export type AiErrorStage = (typeof AI_ERROR_STAGES)[number];
  *    never misreported as a consumer bug or as upstream garbage.
  *  - `QUOTA_CAPABILITY`, `QUOTA_PROVIDER`, `COST_BUDGET_EXHAUSTED` — Stage 5, so every quota scope
  *    has a reason of its own and a cost budget is never misreported as a time budget.
+ *  - `PROVIDER_BALANCE_EXHAUSTED` — Stage 6, so a depleted provider account (402,
+ *    `insufficient_quota`/`insufficient_balance`) is never misreported as a broken credential.
+ *    Not retryable, but fallback-eligible: one wallet's emptiness is not the next provider's.
  *
  * Adding a reason or a detail key is a **minor** change.
  */
@@ -111,6 +114,7 @@ export const AI_ERROR_REASONS = [
   'PROVIDER_AUTH_FAILED',
   'PROVIDER_REQUEST_REJECTED',
   'PROVIDER_UNAVAILABLE',
+  'PROVIDER_BALANCE_EXHAUSTED',
   // EXTRACTION
   'EXTRACTION_FAILED',
   'JSON_PARSE_FAILED',
@@ -189,6 +193,10 @@ export const REASON_META: Readonly<Record<AiErrorReason, ReasonMeta>> = {
   PROVIDER_AUTH_FAILED: { code: 'PROVIDER_ERROR', stage: 'PROVIDER', retryable: false },
   PROVIDER_REQUEST_REJECTED: { code: 'INVALID_REQUEST', stage: 'PROVIDER', retryable: false },
   PROVIDER_UNAVAILABLE: { code: 'PROVIDER_ERROR', stage: 'PROVIDER', retryable: true },
+  // A depleted provider balance (HTTP 402, `insufficient_quota`/`insufficient_balance`) is not a
+  // broken credential and not transient: the configured account cannot pay. Retryable false —
+  // but a *different* provider with a different wallet may serve (Stage 6, additive).
+  PROVIDER_BALANCE_EXHAUSTED: { code: 'PROVIDER_ERROR', stage: 'PROVIDER', retryable: false },
 
   EXTRACTION_FAILED: { code: 'INVALID_RESPONSE', stage: 'EXTRACTION', retryable: true },
   JSON_PARSE_FAILED: { code: 'INVALID_RESPONSE', stage: 'EXTRACTION', retryable: true },
@@ -357,6 +365,7 @@ export const DETAIL_KEYS_BY_REASON: Readonly<Partial<Record<AiErrorReason, reado
   PROVIDER_AUTH_FAILED: ['providerCategory'],
   PROVIDER_REQUEST_REJECTED: ['providerCategory'],
   PROVIDER_UNAVAILABLE: ['providerCategory'],
+  PROVIDER_BALANCE_EXHAUSTED: ['providerCategory'],
 
   EXTRACTION_FAILED: ['strategy'],
   JSON_PARSE_FAILED: ['position'],

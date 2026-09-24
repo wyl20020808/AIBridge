@@ -38,6 +38,10 @@ const timeoutUnknown: FakeStep = {
   kind: 'rawError',
   rawError: { category: 'UPSTREAM', reason: 'PROVIDER_TIMEOUT' },
 };
+const balanceExhausted: FakeStep = {
+  kind: 'rawError',
+  rawError: { category: 'AUTH', reason: 'PROVIDER_BALANCE_EXHAUSTED', dispatched: true },
+};
 
 describe('automatic fallback execution (Phase 68)', () => {
   it('DeepSeek unavailable → OpenAI succeeds, with provenance and a FALLBACK_USED warning', async () => {
@@ -59,6 +63,26 @@ describe('automatic fallback execution (Phase 68)', () => {
     expect(outcome.provenance.fallbackCount).toBe(1);
     // Both attempts are accounted in the ledger.
     expect(await harness.ledger.attempts(outcome.provenance.logicalRequestId)).toHaveLength(2);
+  });
+
+  it('chases a depleted balance to the next provider (PROVIDER_BALANCE_EXHAUSTED, Stage 6)', async () => {
+    const harness = makeHarness({
+      providers: [
+        { id: 'deepseek', behavior: script(balanceExhausted) },
+        { id: 'openai', behavior: script({ kind: 'text', text: 'served by the fallback' }) },
+      ],
+    });
+    const outcome = await harness.runtime.executeObserved(textTurn(1), callerContext);
+    expect(outcome.result.status).toBe('SUCCEEDED');
+    expect(outcome.result.output).toEqual({ text: 'served by the fallback', finishReason: 'STOP' });
+    expect(outcome.result.providerMetadata).toMatchObject({ providerId: 'openai', routeDepth: 1, attemptCount: 2 });
+    // The first wallet's emptiness is fully accounted: not retryable, but chased once.
+    expect(outcome.provenance.attempts[0]).toMatchObject({
+      providerId: 'deepseek',
+      status: 'FAILED',
+      errorReason: 'PROVIDER_BALANCE_EXHAUSTED',
+    });
+    expect(outcome.provenance.fallbackCount).toBe(1);
   });
 
   it('does not chase CONTENT_BLOCKED — no content-policy shopping (Phase 4)', async () => {

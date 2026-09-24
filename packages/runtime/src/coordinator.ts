@@ -45,7 +45,9 @@ import {
   type AiWarning,
   type CancellationToken,
   type FallbackOptions,
+  type KillSwitchBlocked,
   type KillSwitchState,
+  type KillSwitchVerdict,
   type ModelClass,
   type ModelProfile,
   type ProviderBoundValue,
@@ -98,6 +100,7 @@ import {
   normalizeThrown,
   providerTimeoutError,
 } from './errors.js';
+import { killSwitchError } from '@aibridge/core';
 import { nextFallback } from './fallback.js';
 import type { RuntimeConfigSnapshot } from './config-manager.js';
 import {
@@ -198,6 +201,13 @@ type AttemptFailure = {
 type SkipEntry = {
   readonly target: AttemptTarget | null;
   readonly skip: SkippedCandidate;
+  /**
+   * The exact kill-switch verdict that blocked this target. Carried so the terminal error can
+   * surface the true reason (`KILL_SWITCH_GLOBAL` / `KILL_SWITCH_CAPABILITY` / `KILL_SWITCH_PROVIDER`)
+   * instead of collapsing every kill into the provider flavour. Never recorded in the ledger —
+   * the durable skip vocabulary stays `KILL_SWITCH`.
+   */
+  readonly killSwitchBlocked?: KillSwitchBlocked;
 };
 
 /** `nextFallback`'s verdict, adapted for the coordinator's queue shape. */
@@ -856,8 +866,13 @@ export class ExecutionCoordinator {
         return null;
       }
       // 1. Kill switch outranks everything (Phase 49): a DISABLED target is never dispatched.
-      if (!this.#killSwitchAllows(plan, next)) {
-        skipped.push({ target: next, skip: this.#skipOf(next, 'KILL_SWITCH') });
+      const killVerdict = this.#killSwitchVerdict(plan, next);
+      if (!killVerdict.allowed) {
+        skipped.push({
+          target: next,
+          skip: this.#skipOf(next, 'KILL_SWITCH'),
+          killSwitchBlocked: killVerdict,
+        });
         continue;
       }
       // 2. An OPEN breaker never dispatches (Phase 11/52).
@@ -882,7 +897,7 @@ export class ExecutionCoordinator {
     };
   }
 
-  #killSwitchAllows(plan: ExecutionPlan, target: AttemptTarget): boolean {
+  #killSwitchVerdict(plan: ExecutionPlan, target: AttemptTarget): KillSwitchVerdict {
     const live = this.#services.killSwitchState();
     const configured = plan.snapshot.killSwitch;
     const merged: KillSwitchState = {
@@ -894,7 +909,7 @@ export class ExecutionCoordinator {
       capability: plan.capability,
       capabilityVersion: plan.capabilityVersion,
       candidateProviders: [target.providerId],
-    }).allowed;
+    });
   }
 
   #chainExhaustedError(plan: ExecutionPlan, skipped: readonly SkipEntry[], quotaRefusal: AiError | null): AiError {
@@ -903,6 +918,11 @@ export class ExecutionCoordinator {
     }
     const killSwitchSkip = skipped.find((entry) => entry.skip.skipReason === 'KILL_SWITCH');
     if (killSwitchSkip !== undefined) {
+      // The verdict's own reason is authoritative: a global kill is `KILL_SWITCH_GLOBAL`, a
+      // capability kill is `KILL_SWITCH_CAPABILITY` — never collapsed into the provider flavour.
+      if (killSwitchSkip.killSwitchBlocked !== undefined) {
+        return killSwitchError(killSwitchSkip.killSwitchBlocked);
+      }
       return makeAiError({
         reason: 'KILL_SWITCH_PROVIDER',
         message: 'Every provider that could serve this capability is switched off.',

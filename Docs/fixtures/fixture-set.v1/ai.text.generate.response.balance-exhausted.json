@@ -1,0 +1,39 @@
+{
+  "fixtureSetVersion": "1.0",
+  "binding": "ILLUSTRATIVE",
+  "kind": "response",
+  "expect": "accept",
+  "capability": "ai.text.generate",
+  "capabilityVersion": "1.0",
+  "case": "balance-exhausted-consumer-must-not-blame-the-learner",
+  "note": "Stage 6 additive reason. The configured provider account cannot pay (HTTP 402, insufficient_quota / insufficient_balance). This is not a broken credential (PROVIDER_AUTH_FAILED) and not transient: retryable is false. The bridge may have chased the configured fallback chain first (one wallet's emptiness is not the next provider's); when this reaches a consumer, every hop is exhausted or none was configured. A consumer must surface an operator-facing failure, never a learner-facing error page and never a different capability's answer.",
+  "document": {
+    "contractVersion": "1.1",
+    "requestId": "req-01J8Z0KQ7V00000000000021",
+    "capability": "ai.text.generate",
+    "capabilityVersion": "1.0",
+    "status": "FAILED",
+    "error": {
+      "code": "PROVIDER_ERROR",
+      "message": "The configured provider account cannot pay for this call. The operator must repair the deployment.",
+      "retryable": false,
+      "stage": "PROVIDER",
+      "reason": "PROVIDER_BALANCE_EXHAUSTED",
+      "details": {
+        "providerCategory": "AUTH"
+      }
+    },
+    "usage": {},
+    "providerMetadata": {
+      "providerId": "main",
+      "providerFamily": "openai-compatible",
+      "modelClass": "UNKNOWN",
+      "routeDepth": 1,
+      "attemptCount": 2,
+      "repaired": false
+    },
+    "latencyMs": 214,
+    "finishReason": "UNKNOWN",
+    "warnings": []
+  }
+}

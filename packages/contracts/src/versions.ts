@@ -25,8 +25,8 @@ export const GENERIC_REQUEST_SCHEMA_VERSION = '1.0' as const;
 /** The `AiResult` response envelope field set. */
 export const AIBRIDGE_RESPONSE_SCHEMA_VERSION = '1.1' as const;
 
-/** The `AiErrorCode` vocabulary. */
-export const AIBRIDGE_ERROR_VERSION = '1.1' as const;
+/** The `AiErrorCode` / `AiErrorReason` vocabulary. `1.2` — additive Stage 6 reason. */
+export const AIBRIDGE_ERROR_VERSION = '1.2' as const;
 
 /** One capability's declared output shape (per `schemaId@version`). */
 export const STRUCTURED_OUTPUT_SCHEMA_VERSION = '1.0' as const;

@@ -73,10 +73,11 @@ export function classifyHttpFailure(input: {
     return { category: 'CONTENT_FILTER', reason: 'PROVIDER_CONTENT_FILTER', ...base };
   }
   if (vendorType.includes('insufficient')) {
-    // `insufficient_quota` / `insufficient_balance`: the configured account cannot pay. Not
-    // transient — an operator must repair the deployment (OpenAI 429 insufficient_quota,
-    // DeepSeek 402 Insufficient Balance).
-    return { category: 'AUTH', reason: 'PROVIDER_AUTH_FAILED', ...base };
+    // `insufficient_quota` / `insufficient_balance`: the configured account cannot pay. Not a
+    // broken credential and not transient — an operator must repair the deployment (OpenAI 429
+    // insufficient_quota, DeepSeek 402 Insufficient Balance). Stage 6 names this precisely:
+    // `PROVIDER_BALANCE_EXHAUSTED` (a different provider with a different wallet may still serve).
+    return { category: 'AUTH', reason: 'PROVIDER_BALANCE_EXHAUSTED', ...base };
   }
 
   const status = input.status;
@@ -84,8 +85,8 @@ export function classifyHttpFailure(input: {
     return { category: 'AUTH', reason: 'PROVIDER_AUTH_FAILED', ...base };
   }
   if (status === 402) {
-    // DeepSeek documents 402 "Insufficient Balance".
-    return { category: 'AUTH', reason: 'PROVIDER_AUTH_FAILED', ...base };
+    // DeepSeek documents 402 "Insufficient Balance" — the account cannot pay.
+    return { category: 'AUTH', reason: 'PROVIDER_BALANCE_EXHAUSTED', ...base };
   }
   if (status === 429) {
     return { category: 'RATE_LIMIT', reason: 'PROVIDER_THROTTLED', ...base };

@@ -217,7 +217,7 @@ describe('official error table → generic errors', () => {
     const cases: ReadonlyArray<readonly [number, string, string]> = [
       [401, '{"error":{"message":"Authentication Fails","type":"invalid_request_error"}}', 'PROVIDER_AUTH_FAILED'],
       [429, '{"error":{"message":"Rate Limit Reached","type":"rate_limit_error"}}', 'PROVIDER_THROTTLED'],
-      [402, '{"error":{"message":"Insufficient Balance","type":"insufficient_balance"}}', 'PROVIDER_AUTH_FAILED'],
+      [402, '{"error":{"message":"Insufficient Balance","type":"insufficient_balance"}}', 'PROVIDER_BALANCE_EXHAUSTED'],
       [503, '{"error":{"message":"Server Overloaded","type":"server_error"}}', 'PROVIDER_OVERLOADED'],
       [422, '{"error":{"message":"Invalid Parameters","type":"invalid_request_error"}}', 'PROVIDER_REQUEST_REJECTED'],
       [500, '{"error":{"message":"Server Error","type":"server_error"}}', 'PROVIDER_UNAVAILABLE'],

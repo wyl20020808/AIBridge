@@ -42,15 +42,19 @@ export function nextFallback<THop>(
   if (!fallbackEligibility(error.code, options)) {
     return { kind: 'STOP', rule: 'NOT_ELIGIBLE' };
   }
-  // `PROVIDER_ERROR` is eligible only when the bridge marked it retryable (e.g. OVERLOADED).
-  if (error.code === 'PROVIDER_ERROR' && !error.retryable) {
+  // A depleted balance (`PROVIDER_BALANCE_EXHAUSTED`, Stage 6) is the one deliberate exception
+  // to the non-retryable rules below: permanent for one wallet, but not for the next provider.
+  const balanceChase = error.reason === 'PROVIDER_BALANCE_EXHAUSTED';
+  // `PROVIDER_ERROR` is eligible only when the bridge marked it retryable (e.g. OVERLOADED) —
+  // except a depleted balance, which is chased like an overload.
+  if (error.code === 'PROVIDER_ERROR' && !error.retryable && !balanceChase) {
     return { kind: 'STOP', rule: 'NOT_RETRYABLE' };
   }
   // A non-retryable failure is never chased across providers, whatever its code — except where the
   // frozen classification table (§7.2) explicitly allows a **configured** chase: `RATE_LIMITED`
   // and `QUOTA_EXCEEDED` are retryable:false by nature and still configurable for fallback.
   const configuredChase = error.code === 'RATE_LIMITED' || error.code === 'QUOTA_EXCEEDED';
-  if (!error.retryable && !configuredChase && error.code !== 'UNAVAILABLE' && error.code !== 'TIMEOUT' && error.code !== 'MODEL_UNAVAILABLE') {
+  if (!error.retryable && !configuredChase && !balanceChase && error.code !== 'UNAVAILABLE' && error.code !== 'TIMEOUT' && error.code !== 'MODEL_UNAVAILABLE') {
     return { kind: 'STOP', rule: 'NOT_RETRYABLE' };
   }
   const next = chain[1];

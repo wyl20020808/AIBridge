@@ -154,6 +154,12 @@ describe('error body classification', () => {
     expect(classifyHttpFailure({ status: 422, body: {} }).reason).toBe('PROVIDER_REQUEST_REJECTED');
     expect(classifyHttpFailure({ status: 504, body: {} }).reason).toBe('PROVIDER_TIMEOUT');
     expect(classifyHttpFailure({ status: 400, body: { error: { type: 'content_filter' } } }).reason).toBe('PROVIDER_CONTENT_FILTER');
+    // Stage 6: a depleted balance is its own reason — never a broken credential (402, and the
+    // `insufficient_quota` / `insufficient_balance` body markers on any status).
+    expect(classifyHttpFailure({ status: 402, body: {} }).reason).toBe('PROVIDER_BALANCE_EXHAUSTED');
+    expect(classifyHttpFailure({ status: 429, body: { error: { type: 'insufficient_quota' } } }).reason).toBe('PROVIDER_BALANCE_EXHAUSTED');
+    expect(classifyHttpFailure({ status: 402, body: { error: { type: 'insufficient_balance' } } }).reason).toBe('PROVIDER_BALANCE_EXHAUSTED');
+    expect(classifyHttpFailure({ status: 402, body: {} }).category).toBe('AUTH');
   });
 
   it('parses only the delta-seconds form of Retry-After', () => {

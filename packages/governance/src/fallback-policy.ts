@@ -63,7 +63,10 @@ export const FALLBACK_STOP_RULES = [
 export type FallbackStopRule = (typeof FALLBACK_STOP_RULES)[number];
 
 export type FallbackDecision =
-  | { readonly eligible: true; readonly rule: 'PROVIDER_TRANSIENT' | 'MODEL_UNAVAILABLE' | 'TIMEOUT' | 'RATE_LIMIT_POLICY' | 'PROVIDER_QUOTA_POLICY' }
+  | {
+      readonly eligible: true;
+      readonly rule: 'PROVIDER_TRANSIENT' | 'MODEL_UNAVAILABLE' | 'TIMEOUT' | 'RATE_LIMIT_POLICY' | 'PROVIDER_QUOTA_POLICY' | 'PROVIDER_BALANCE';
+    }
   | { readonly eligible: false; readonly rule: FallbackStopRule; readonly failureClass: FailureClass };
 
 /** The resolved policy, defaults filled in. */
@@ -113,8 +116,14 @@ export function decideFallback(
       return deny('PERMISSION_PROPERTY');
     case 'INTERNAL':
     case 'PROVIDER_PERMANENT':
-      // A broken credential or an internal fault is a deployment problem. Another provider's
-      // money must not be spent papering over it (Phase 4: secret/config errors never fall back).
+      // A depleted provider balance (Stage 6, additive reason) is one wallet's problem, not a
+      // config fault and not the request's: a different provider with a different account may
+      // serve, exactly like an overload. Everything else permanent — a broken credential or an
+      // internal fault — is a deployment problem and must not spend another provider's money
+      // papering over it (Phase 4: secret/config errors never fall back).
+      if (error.reason === 'PROVIDER_BALANCE_EXHAUSTED') {
+        return { eligible: true, rule: 'PROVIDER_BALANCE' };
+      }
       return deny('CONFIG_OR_INTERNAL');
     case 'DEADLINE':
       return deny('DEADLINE_EXHAUSTED');

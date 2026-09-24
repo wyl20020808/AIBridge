@@ -87,6 +87,18 @@ describe('fallback policy — provider property vs request property', () => {
     }
   });
 
+  it('allows chasing a depleted provider balance but never a broken credential (Stage 6)', () => {
+    // One wallet's emptiness is not the next provider's: the operator's fallback chain is their
+    // statement of willingness, so balance exhaustion is chased like an overload.
+    const balance = decideFallback(errorWith('PROVIDER_BALANCE_EXHAUSTED'));
+    expect(balance.eligible).toBe(true);
+    if (balance.eligible) {
+      expect(balance.rule).toBe('PROVIDER_BALANCE');
+    }
+    // A broken credential is a deployment fault: never another provider's money.
+    expect(decideFallback(errorWith('PROVIDER_AUTH_FAILED')).eligible).toBe(false);
+  });
+
   it('rate limits and quotas fall back only when the route opts in — and never the caller\'s own', () => {
     // Provider-originated throttling: opt-in.
     const throttled = errorWith('PROVIDER_THROTTLED');

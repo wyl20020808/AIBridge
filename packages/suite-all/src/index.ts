@@ -61,23 +61,30 @@ export const SUITE_ADAPTER_FACTORIES: AdapterFactories = {
       id: spec.providerId,
       baseUrl: spec.baseUrl,
       models: modelConfigs(spec),
+      allowPrivateNetworkForDevelopment: spec.allowPrivateNetworkForDevelopment,
     }),
   DEEPSEEK_OFFICIAL: (spec) =>
     new DeepSeekAdapter({
       id: spec.providerId,
       baseUrl: spec.baseUrl,
       models: modelConfigs(spec),
+      allowPrivateNetworkForDevelopment: spec.allowPrivateNetworkForDevelopment,
     }),
   XIAOMI_TOKENPLAN: (spec) =>
     new XiaomiTokenPlanAdapter({
       id: spec.providerId,
       baseUrl: spec.baseUrl,
       models: modelConfigs(spec),
+      allowPrivateNetworkForDevelopment: spec.allowPrivateNetworkForDevelopment,
     }),
   OPENAI_COMPATIBLE_CUSTOM: (spec) =>
     new OpenAiCompatibleAdapter({
       id: spec.providerId,
       baseUrl: spec.baseUrl,
       models: modelConfigs(spec),
+      // The operator's declared wire facts are forwarded verbatim: a custom gateway's auth scheme
+      // and the development-only private-network relaxation are configuration, never URL guesses.
+      authScheme: spec.authScheme,
+      allowPrivateNetworkForDevelopment: spec.allowPrivateNetworkForDevelopment,
     }),
 };

@@ -107,6 +107,27 @@ Full rationale: [`ARCHITECTURE.md`](ARCHITECTURE.md). Capability semantics:
 > Fixture impact: one new **ILLUSTRATIVE** fixture
 > (`ai.text.generate.response.reliability.json`); every `FROZEN` fixture parses unchanged.
 
+> **Compatibility note — Stage 6 implementation (additive within major 1).** Stage 6 bound AI
+> Bridge into OJPlatform as a capability provider and drove the artifacts through a real host.
+> One additive change was needed and is recorded here per [`../AGENTS.md`](../AGENTS.md) §8: no
+> frozen field changed meaning, no value was removed or renamed, and every `FROZEN` fixture still
+> parses unchanged.
+>
+> 1. **One error reason** (§7): `PROVIDER_BALANCE_EXHAUSTED` — a provider account that cannot pay
+>    (HTTP 402, OpenAI 429 `insufficient_quota`, DeepSeek 402 "Insufficient Balance"). Until now
+>    these classified as `PROVIDER_AUTH_FAILED`, which misreports an empty wallet as a broken key
+>    and tells an operator to rotate a credential that is perfectly valid. Classification
+>    (`code`/`stage`/`retryable`): `PROVIDER_ERROR`/`PROVIDER`/`false`. The closed
+>    `details.providerCategory` set is unchanged — a balance failure keeps the `AUTH` home and
+>    names its own reason, exactly as `MODEL_UNAVAILABLE` already does on `BAD_REQUEST`. One
+>    behavioral consequence, deliberate: unlike other `PROVIDER_PERMANENT` failures, this reason
+>    is **fallback-eligible** (stop rule `PROVIDER_BALANCE`) — one wallet's emptiness is not the
+>    next provider's, and a configured fallback chain is the operator's statement of willingness.
+>    Version bump: `AIBRIDGE_ERROR_VERSION` `1.1` → `1.2` (§2).
+>
+> Fixture impact: one new **ILLUSTRATIVE** fixture
+> (`ai.text.generate.response.balance-exhausted.json`); every `FROZEN` fixture parses unchanged.
+
 ---
 
 ## 0. What is frozen, and what is not
@@ -165,13 +186,14 @@ Full rationale: [`ARCHITECTURE.md`](ARCHITECTURE.md). Capability semantics:
 export const AIBRIDGE_CONTRACT_VERSION        = '1.1';  // envelopes + error vocabulary
 export const AIBRIDGE_REQUEST_SCHEMA_VERSION  = '1.0';  // AiRequestEnvelope
 export const AIBRIDGE_RESPONSE_SCHEMA_VERSION = '1.1';  // AiResult
-export const AIBRIDGE_ERROR_VERSION           = '1.1';  // AiErrorCode
+export const AIBRIDGE_ERROR_VERSION           = '1.2';  // AiErrorCode + AiErrorReason
 export const AIBRIDGE_FIELD_DIALECT           = 'aibridge.fields/v1';
 export const AIBRIDGE_PLUGIN_API_VERSION      = 1;
 ```
 
-The three `1.1` values are the additive Stage 5 bump (see the compatibility note above); comparison
-stays major-compatible, so a `1.0` consumer is still accepted.
+`1.1` on the envelopes is the additive Stage 5 bump (see the compatibility note above);
+`AIBRIDGE_ERROR_VERSION` is `1.2` for the additive Stage 6 reason below. Comparison stays
+major-compatible, so a `1.0` consumer is still accepted.
 
 ### 2.1 Compatibility rule (frozen)
 
@@ -501,7 +523,7 @@ export type AiError = {
   readonly stage: 'ENVELOPE' | 'PERMISSION' | 'INPUT_SAFETY' | 'ROUTING' | 'PROVIDER'
                | 'EXTRACTION' | 'VALIDATION' | 'POLICY' | 'DEADLINE' | 'GOVERNANCE' | 'CANCELLATION'
                | 'INTERNAL';   // INTERNAL is additive, Stage 2 — see the compatibility note
-  readonly reason?: AiErrorReason;   // closed set — ARCHITECTURE.md §6.2, plus the Stage 2 and Stage 3 additions
+  readonly reason?: AiErrorReason;   // closed set — ARCHITECTURE.md §6.2, plus the additive Stage 2/3/5/6 reasons
   readonly details?: Readonly<Record<string, string | number | boolean>>;
 };
 ```
