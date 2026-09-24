@@ -31,6 +31,9 @@
 import {
   makeAiError,
   makeFailureResult,
+  makeStreamCompleted,
+  makeStreamFailed,
+  makeStreamTextDelta,
   makeSuccessResult,
   makeWarning,
   providerDeadlineAt,
@@ -41,6 +44,9 @@ import {
   type AiErrorReason,
   type AiFinishReason,
   type AiResult,
+  type AiStreamCompleted,
+  type AiStreamEvent,
+  type AiStreamFailed,
   type AiUsage,
   type AiWarning,
   type CancellationToken,
@@ -52,6 +58,7 @@ import {
   type ModelProfile,
   type ProviderBoundValue,
   type ProviderRequest,
+  type ProviderStreamEvent,
   type ProviderStructuredResult,
   type ProviderTextResult,
   type ValidationIssue,
@@ -102,7 +109,7 @@ import {
   providerTimeoutError,
   validationFailureToAiError,
 } from './errors.js';
-import { killSwitchError } from '@aibridge/core';
+import { killSwitchError, utf8ByteLength } from '@aibridge/core';
 import { nextFallback } from './fallback.js';
 import type { RuntimeConfigSnapshot } from './config-manager.js';
 import { validateCodeDebugOutput } from './code-debug.js';
@@ -401,13 +408,25 @@ export class ExecutionCoordinator {
         return finish(result, 'REPLAYED', null, { promptProvenance: gate.promptProvenance });
       }
       if (gate.kind === 'JOIN') {
-        const joined = await gate.result.catch(() =>
-          this.#failureResult(plan, makeAiError({ reason: 'INTERNAL_ERROR', message: 'The in-flight call this duplicate joined did not complete.' }), startedAtMs, [], { finalTarget, attemptCount: 0, finalUsage }),
-        );
-        const result = this.#withWarnings(joined, [
-          makeWarning('IDEMPOTENT_REPLAY', 'joined an in-flight duplicate; one provider execution served both'),
-        ]);
-        return finish(result, 'JOINED', null, { promptProvenance: gate.promptProvenance });
+        // A joiner must not hang past its own deadline or ignore its own cancellation: race
+        // the leader's promise the same way an attempt is raced.
+        const remainingMs = Math.max(0, plan.deadlineAtMs - this.#services.clock.nowMs());
+        const joined = await raceAttempt(gate.result, remainingMs, options.cancellation);
+        if (joined.kind === 'completed') {
+          const result = this.#withWarnings(joined.value, [
+            makeWarning('IDEMPOTENT_REPLAY', 'joined an in-flight duplicate; one provider execution served both'),
+          ]);
+          return finish(result, 'JOINED', null, { promptProvenance: gate.promptProvenance });
+        }
+        const error =
+          joined.kind === 'cancelled'
+            ? cancelledByCallerError()
+            : joined.kind === 'deadline'
+              ? this.#services.clock.nowMs() >= plan.deadlineAtMs
+                ? budgetExhaustedError(0)
+                : providerTimeoutError()
+              : makeAiError({ reason: 'INTERNAL_ERROR', message: 'The in-flight call this duplicate joined did not complete.' });
+        return finish(this.#failureResult(plan, error, startedAtMs, [], { finalTarget, attemptCount: 0, finalUsage }), 'EXECUTED', null);
       }
       settleGate = gate.settle;
     }
@@ -426,14 +445,14 @@ export class ExecutionCoordinator {
     const providerQuotaPolicies = governance.quotas.filter((policy) => policy.scope === 'provider');
     const budgetPolicies = this.#budgetQuotaPolicies(governance.budget);
     const estimateTokens = this.#tokenReservation(requestQuotaPolicies, plan);
-    const primaryPricing = this.#pinPricing(plan, primary ?? null);
+    const primaryPricing = this.#pinPricing(plan, primary ?? null, startedAtMs);
     const estimatedCost = this.#conservativeCost(primaryPricing, estimateTokens);
     const estimate = {
       tokens: estimateTokens,
       ...(estimatedCost.amount === undefined ? {} : { cost: estimatedCost.amount }),
     };
 
-    const budgetDecision = await this.#services.budget.check(quotaRequest, estimatedCost.amount, governance.budget);
+    const budgetDecision = await this.#services.budget.check(quotaRequest, estimatedCost, governance.budget);
     if (!budgetDecision.ok) {
       this.#services.events.emit({
         type: 'ai.quota_rejected',
@@ -530,7 +549,7 @@ export class ExecutionCoordinator {
       const attemptKind = nextKind;
       const attemptStartedAtMs = this.#services.clock.nowMs();
       const breaker = this.#services.breakers.for(target.providerId, target.modelAlias);
-      const pricing = this.#pinPricing(plan, target);
+      const pricing = this.#pinPricing(plan, target, startedAtMs);
 
       this.#services.events.emit({
         type: 'ai.provider_attempt_started',
@@ -561,7 +580,7 @@ export class ExecutionCoordinator {
       // including the ones that failed (Phase 26).
       await this.#services.quotas.settle(providerReservation.reservation, {
         usageKnown,
-        ...(usage.totalTokens === undefined ? {} : { tokens: usage.totalTokens }),
+        ...(this.#reportedTokens(usage) === undefined ? {} : { tokens: this.#reportedTokens(usage) as number }),
         ...(cost.amount === undefined ? {} : { cost: cost.amount }),
       });
       attemptUsage.push({ usage, known: usageKnown });
@@ -758,10 +777,17 @@ export class ExecutionCoordinator {
      * -------------------------------------------------------------------------------------- */
     const total = aggregateUsage(attemptUsage);
     const totalCost = mergeCosts(attemptCosts);
+    // A terminal reached with zero dispatches releases — never charges — the request-scope
+    // reservations: a pre-dispatch cancel or refusal paid nothing, so settling the conservative
+    // estimate would burn quota for work that never happened.
     for (const reservation of reservations) {
+      if (counts.dispatched === 0) {
+        await this.#services.quotas.release(reservation);
+        continue;
+      }
       await this.#services.quotas.settle(reservation, {
         usageKnown: total.complete,
-        ...(total.usage.totalTokens === undefined ? {} : { tokens: total.usage.totalTokens }),
+        ...(this.#reportedTokens(total.usage) === undefined ? {} : { tokens: this.#reportedTokens(total.usage) as number }),
         ...(totalCost.amount === undefined ? {} : { cost: totalCost.amount }),
       });
     }
@@ -806,6 +832,795 @@ export class ExecutionCoordinator {
   }
 
   /* -----------------------------------------------------------------------------------------------
+   * Governed streaming — the same pre-dispatch governance as `execute`, exactly one attempt.
+   * -------------------------------------------------------------------------------------------- */
+
+  /**
+   * Stream one logical request as a single governed attempt. Never throws: every terminal path
+   * settles fully (ledger, metrics, quota, idempotency) and then yields exactly one COMPLETED or
+   * FAILED event.
+   *
+   * Retry, fallback and repair do not apply — partial output may already be delivered — but
+   * idempotency, budget, quota, rate limit, kill switch, breaker and the usage ledger apply
+   * exactly as in `execute`. The caller yields STARTED first; this generator yields zero or more
+   * TEXT_DELTAs and then one terminal event.
+   */
+  async *stream(plan: ExecutionPlan, options: ExecuteOptions = {}): AsyncIterable<AiStreamEvent> {
+    const startedAtMs = this.#services.clock.nowMs();
+    const logicalRequestId = this.#services.ids.next('lreq');
+    const snapshot = plan.snapshot;
+    const governance = snapshot.governance;
+    const subjectRef = safeSubjectRef(plan.subjectToken);
+    const primary = plan.candidates[0];
+
+    this.#services.events.emit({
+      type: 'ai.request_started',
+      atMs: startedAtMs,
+      payload: {
+        requestId: plan.requestId,
+        capability: plan.capability,
+        callerPluginId: plan.callerPluginId,
+        configVersion: snapshot.configVersion,
+      },
+    });
+    this.#services.metrics.record({ name: 'ai.request.count', value: 1, labels: { capability: plan.capability } });
+
+    const attemptRecords: ProviderAttemptProvenance[] = [];
+    const ledgerAttempts: ProviderAttemptUsageRecord[] = [];
+    const skipped: SkipEntry[] = [];
+    const planPromptProvenance: PromptProvenance | undefined =
+      plan.promptApplied === undefined
+        ? undefined
+        : {
+            promptApplied: plan.promptApplied,
+            ...(plan.promptVersion === undefined ? {} : { promptVersion: plan.promptVersion }),
+          };
+    const latencyMs = (): number => Math.max(0, this.#services.clock.nowMs() - startedAtMs);
+
+    // Settle a terminal stream event the same way `execute` settles a terminal result: one
+    // request ledger record, the attempt records, request events/metrics and the idempotency
+    // settlement — all before the terminal event reaches the consumer.
+    const settleStream = async (input: {
+      readonly terminal: AiStreamCompleted | AiStreamFailed;
+      readonly result: AiResult<unknown>;
+      readonly idempotencyOutcome: 'EXECUTED' | 'REPLAYED' | 'JOINED';
+      readonly settleGate: ((value: AiResult<unknown>) => Promise<void>) | null;
+      readonly promptProvenance: PromptProvenance | undefined;
+      readonly dispatched: number;
+      readonly reservations: readonly QuotaReservation[];
+      readonly usage: AiUsage;
+      readonly usageComplete: boolean;
+      readonly cost: CostEstimate;
+    }): Promise<AiStreamCompleted | AiStreamFailed> => {
+      await this.#settleStream({
+        plan,
+        logicalRequestId,
+        startedAtMs,
+        terminal: input.terminal,
+        result: input.result,
+        idempotencyOutcome: input.idempotencyOutcome,
+        settleGate: input.settleGate,
+        promptProvenance: input.promptProvenance,
+        attemptRecords,
+        ledgerAttempts,
+        skipped,
+        dispatched: input.dispatched,
+        reservations: input.reservations,
+        usage: input.usage,
+        usageComplete: input.usageComplete,
+        cost: input.cost,
+      });
+      return input.terminal;
+    };
+
+    const failedStream = (
+      error: AiError,
+      usage: AiUsage,
+      finishReason: AiFinishReason,
+      warnings: readonly AiWarning[],
+    ): { readonly terminal: AiStreamFailed; readonly result: AiResult<never> } => {
+      const terminal = makeStreamFailed({
+        error,
+        usage,
+        finishReason,
+        providerMetadata: this.#projection(primary ?? null, 1, false),
+        latencyMs: latencyMs(),
+        warnings,
+      });
+      const result = makeFailureResult({
+        contractVersion: plan.contractVersion,
+        requestId: plan.requestId,
+        capability: plan.capability,
+        capabilityVersion: plan.capabilityVersion,
+        error,
+        usage,
+        providerMetadata: this.#projection(primary ?? null, 1, false),
+        latencyMs: latencyMs(),
+        finishReason,
+        warnings,
+      });
+      return { terminal, result };
+    };
+
+    // Deliver a stored idempotent result as stream events: a succeeded text result replays its
+    // text as deltas, anything else replays as the stored failure. No provider is called.
+    const deliverStored = (
+      stored: AiResult<unknown>,
+      idempotencyOutcome: 'REPLAYED' | 'JOINED',
+      promptProvenance: PromptProvenance | undefined,
+    ): AsyncGenerator<AiStreamEvent> =>
+      this.#deliverStoredStream({
+        plan,
+        logicalRequestId,
+        startedAtMs,
+        primary: primary ?? null,
+        stored,
+        idempotencyOutcome,
+        promptProvenance,
+        attemptRecords,
+        ledgerAttempts,
+        skipped,
+      });
+
+    /* -- Phase 51 — idempotency before governance, before any dispatch. -- */
+    let settleGate: ((value: AiResult<unknown>) => Promise<void>) | null = null;
+    if (governance.idempotency.enabled) {
+      const gate = await this.#services.idempotency.gate(
+        {
+          callerPluginId: plan.callerPluginId,
+          capability: plan.capability,
+          capabilityVersion: plan.capabilityVersion,
+          idempotencyKey: plan.idempotencyKey,
+        },
+        plan.fingerprint,
+        logicalRequestId,
+        planPromptProvenance,
+      );
+      if (gate.kind === 'CONFLICT') {
+        const { terminal, result } = failedStream(
+          makeAiError({ reason: 'IDEMPOTENCY_CONFLICT', message: 'This idempotency key was already used for a different request body.' }),
+          {},
+          'UNKNOWN',
+          [...plan.warnings],
+        );
+        yield await settleStream({
+          terminal,
+          result,
+          idempotencyOutcome: 'EXECUTED',
+          settleGate: null,
+          promptProvenance: planPromptProvenance,
+          dispatched: 0,
+          reservations: [],
+          usage: {},
+          usageComplete: false,
+          cost: { basis: 'UNKNOWN' },
+        });
+        return;
+      }
+      if (gate.kind === 'REPLAY') {
+        yield* deliverStored(gate.result, 'REPLAYED', gate.promptProvenance);
+        return;
+      }
+      if (gate.kind === 'JOIN') {
+        // A joiner must not hang past its own deadline or ignore its own cancellation: race
+        // the leader's promise the same way an attempt is raced.
+        const remainingMs = Math.max(0, plan.deadlineAtMs - this.#services.clock.nowMs());
+        const joined = await raceAttempt(gate.result, remainingMs, options.cancellation);
+        if (joined.kind === 'completed') {
+          yield* deliverStored(joined.value, 'JOINED', gate.promptProvenance);
+          return;
+        }
+        const error =
+          joined.kind === 'cancelled'
+            ? cancelledByCallerError()
+            : joined.kind === 'deadline'
+              ? this.#services.clock.nowMs() >= plan.deadlineAtMs
+                ? budgetExhaustedError(0)
+                : providerTimeoutError()
+              : makeAiError({ reason: 'INTERNAL_ERROR', message: 'The in-flight call this duplicate joined did not complete.' });
+        const { terminal, result } = failedStream(error, {}, 'UNKNOWN', [...plan.warnings]);
+        yield await settleStream({
+          terminal,
+          result,
+          idempotencyOutcome: 'JOINED',
+          settleGate: null,
+          promptProvenance: gate.promptProvenance,
+          dispatched: 0,
+          reservations: [],
+          usage: {},
+          usageComplete: false,
+          cost: { basis: 'UNKNOWN' },
+        });
+        return;
+      }
+      settleGate = gate.settle;
+    }
+
+    /* -- Governance — budget pre-check, quota reservation, rate limit. All before dispatch. -- */
+    const quotaRequest: QuotaRequest = {
+      callerPluginId: plan.callerPluginId,
+      capability: plan.capability,
+      ...(subjectRef === undefined ? {} : { subjectRef }),
+      ...(primary === undefined ? {} : { providerId: primary.providerId }),
+    };
+    const requestQuotaPolicies = governance.quotas.filter((policy) => policy.scope !== 'provider');
+    const providerQuotaPolicies = governance.quotas.filter((policy) => policy.scope === 'provider');
+    const budgetPolicies = this.#budgetQuotaPolicies(governance.budget);
+    const estimateTokens = this.#tokenReservation(requestQuotaPolicies, plan);
+    const primaryPricing = this.#pinPricing(plan, primary ?? null, startedAtMs);
+    const estimatedCost = this.#conservativeCost(primaryPricing, estimateTokens);
+    const estimate = {
+      tokens: estimateTokens,
+      ...(estimatedCost.amount === undefined ? {} : { cost: estimatedCost.amount }),
+    };
+    const reservations: QuotaReservation[] = [];
+
+    // A refusal below settles with zero dispatches, which releases (never charges) the
+    // reservations held so far: nothing was paid, so nothing is counted.
+    const refuse = async (error: AiError): Promise<AiStreamFailed> => {
+      const { terminal, result } = failedStream(error, {}, 'UNKNOWN', [...plan.warnings]);
+      await settleStream({
+        terminal,
+        result,
+        idempotencyOutcome: 'EXECUTED',
+        settleGate,
+        promptProvenance: planPromptProvenance,
+        dispatched: 0,
+        reservations,
+        usage: {},
+        usageComplete: false,
+        cost: { basis: 'UNKNOWN' },
+      });
+      return terminal;
+    };
+
+    const budgetDecision = await this.#services.budget.check(quotaRequest, estimatedCost, governance.budget);
+    if (!budgetDecision.ok) {
+      this.#services.events.emit({
+        type: 'ai.quota_rejected',
+        atMs: this.#services.clock.nowMs(),
+        payload: { dimension: 'ESTIMATED_COST', scope: 'budget', reason: 'COST_BUDGET_EXHAUSTED' },
+      });
+      yield await refuse(budgetDecision.error);
+      return;
+    }
+
+    const requestReservation = await this.#services.quotas.reserve(quotaRequest, estimate, requestQuotaPolicies);
+    if (!requestReservation.ok) {
+      this.#emitQuotaRejected(requestReservation.error, requestReservation.policy);
+      yield await refuse(requestReservation.error);
+      return;
+    }
+    reservations.push(requestReservation.reservation);
+
+    const budgetReservation = await this.#services.quotas.reserve(quotaRequest, estimate, budgetPolicies);
+    if (!budgetReservation.ok) {
+      await this.#services.quotas.release(requestReservation.reservation);
+      reservations.pop();
+      this.#emitQuotaRejected(costBudgetExhaustedError(), { meter: 'ESTIMATED_COST', scope: 'global' });
+      yield await refuse(costBudgetExhaustedError());
+      return;
+    }
+    reservations.push(budgetReservation.reservation);
+
+    const rate = await this.#services.rateLimiter.consume(quotaRequest, governance.rateLimits);
+    if (!rate.allowed) {
+      await this.#services.quotas.release(requestReservation.reservation);
+      await this.#services.quotas.release(budgetReservation.reservation);
+      reservations.length = 0;
+      this.#services.events.emit({
+        type: 'ai.rate_limited',
+        atMs: this.#services.clock.nowMs(),
+        payload: { dimension: rate.dimension, reason: rate.error.reason ?? 'RATE_LIMIT_SUBJECT', retryAfterMs: rate.retryAfterMs },
+      });
+      this.#services.metrics.record({ name: 'ai.rate_limited.count', value: 1, labels: { capability: plan.capability, dimension: 'REQUESTS' } });
+      yield await refuse(rate.error);
+      return;
+    }
+
+    /* -- Single-target selection: kill switch, then breaker. No retry, no fallback. -- */
+    const target = this.#pickCandidate(plan, [...plan.candidates], skipped);
+    if (target === null) {
+      yield await refuse(this.#chainExhaustedError(plan, skipped, null));
+      return;
+    }
+
+    const providerDeadlineAtMs = providerDeadlineAt(plan.deadlineAtMs, this.#services.clock.nowMs(), plan.budget.providerMs);
+    if (providerDeadlineAtMs === null) {
+      skipped.push({ target, skip: this.#skipOf(target, 'DEADLINE_EXHAUSTED') });
+      yield await refuse(budgetExhaustedError(Math.max(0, plan.deadlineAtMs - this.#services.clock.nowMs())));
+      return;
+    }
+
+    const streamText = target.route.adapter.streamText;
+    if (streamText === undefined) {
+      skipped.push({ target, skip: this.#skipOf(target, 'CAPABILITY_UNMET') });
+      yield await refuse(
+        makeAiError({ reason: 'NO_ROUTE', message: 'The resolved route cannot deliver a stream.', details: { profile: plan.profile } }),
+      );
+      return;
+    }
+
+    const targetQuotaPolicies = providerQuotaPolicies.filter((policy) => policy.scopeKey === undefined || policy.scopeKey === target.providerId);
+    const providerReservation = await this.#services.quotas.reserve(
+      { ...quotaRequest, providerId: target.providerId },
+      estimate,
+      targetQuotaPolicies,
+    );
+    if (!providerReservation.ok) {
+      skipped.push({ target, skip: this.#skipOf(target, 'QUOTA_INELIGIBLE') });
+      yield await refuse(this.#chainExhaustedError(plan, skipped, providerReservation.error));
+      return;
+    }
+
+    if (options.cancellation?.cancelled === true) {
+      await this.#services.quotas.release(providerReservation.reservation);
+      yield await refuse(cancelledByCallerError());
+      return;
+    }
+
+    /* -- The single attempt, raced per step against its deadline and cancellation. -- */
+    const sequence = 1;
+    const attemptId = this.#services.ids.next('att');
+    const attemptStartedAtMs = this.#services.clock.nowMs();
+    const breaker = this.#services.breakers.for(target.providerId, target.modelAlias);
+    const pricing = this.#pinPricing(plan, target, startedAtMs);
+    this.#services.events.emit({
+      type: 'ai.provider_attempt_started',
+      atMs: attemptStartedAtMs,
+      payload: { requestId: plan.requestId, attemptId, sequence, providerId: target.providerId, modelAlias: target.modelAlias, attemptKind: 'PRIMARY' },
+    });
+    this.#log.write({
+      level: 'info',
+      event: 'provider.dispatched',
+      atMs: attemptStartedAtMs,
+      requestId: plan.requestId,
+      capability: plan.capability,
+      providerId: target.providerId,
+    });
+
+    const providerRequest = buildProviderRequest(plan, target, providerDeadlineAtMs, options.cancellation, undefined);
+    let iterator: AsyncIterator<ProviderStreamEvent>;
+    try {
+      iterator = streamText.call(target.route.adapter, providerRequest)[Symbol.asyncIterator]();
+    } catch (error: unknown) {
+      await this.#services.quotas.release(providerReservation.reservation);
+      const normalized = normalizeThrown(error);
+      breaker.recordFailure(normalized);
+      this.#services.health.recordFailure(target.providerId, target.modelAlias, normalized);
+      const { terminal, result } = failedStream(normalized, {}, 'UNKNOWN', [...plan.warnings]);
+      yield await settleStream({
+        terminal,
+        result,
+        idempotencyOutcome: 'EXECUTED',
+        settleGate,
+        promptProvenance: planPromptProvenance,
+        dispatched: 0,
+        reservations,
+        usage: {},
+        usageComplete: false,
+        cost: { basis: 'UNKNOWN' },
+      });
+      return;
+    }
+
+    let accumulated = '';
+    let accumulatedBytes = 0;
+    let usage: AiUsage = {};
+    let finishReason: AiFinishReason = 'UNKNOWN';
+    let finished = false;
+    let streamError: AiError | null = null;
+    // True once the provider demonstrably did billable work: usage arrived, or output text was
+    // accepted. A cancel/timeout before either is settled as zero-dispatch (release, not charge).
+    let providerWorkObserved = false;
+
+    try {
+      for (;;) {
+        const timeoutMs = Math.max(0, providerDeadlineAtMs - this.#services.clock.nowMs());
+        const step = await raceAttempt(iterator.next(), timeoutMs, options.cancellation);
+        if (step.kind === 'cancelled') {
+          streamError = cancelledByCallerError();
+          break;
+        }
+        if (step.kind === 'deadline') {
+          streamError = this.#services.clock.nowMs() >= plan.deadlineAtMs ? budgetExhaustedError(0) : providerTimeoutError();
+          break;
+        }
+        if (step.kind === 'threw') {
+          streamError = normalizeThrown(step.error);
+          break;
+        }
+        if (step.value.done === true) {
+          break;
+        }
+        const event = step.value.value;
+        if (event.kind === 'TEXT_DELTA') {
+          if (event.text.length === 0) {
+            continue;
+          }
+          // Incremental output cap: a malicious provider must not be able to grow the
+          // accumulation without bound before the cap fires. A single over-cap delta fails
+          // without being yielded; deltas already delivered stay honest (a FAILED terminal
+          // follows them, exactly as a mid-stream provider error behaves).
+          const deltaBytes = utf8ByteLength(event.text);
+          if (deltaBytes > plan.maxOutputBytes || accumulatedBytes + deltaBytes > plan.maxOutputBytes) {
+            streamError = validationFailureToAiError(
+              {
+                reason: 'OUTPUT_TOO_LARGE',
+                code: 'SCHEMA_MISMATCH',
+                stage: 'EXTRACTION',
+                issues: [{ code: 'SIZE_EXCEEDED', path: '$', message: 'streamed output exceeded the cap' }],
+              },
+              'The streamed answer exceeds the declared output size cap.',
+            );
+            break;
+          }
+          accumulated += event.text;
+          accumulatedBytes += deltaBytes;
+          providerWorkObserved = true;
+          yield makeStreamTextDelta(event.text);
+          continue;
+        }
+        if (event.kind === 'FINISH') {
+          usage = event.usage;
+          finishReason = event.finishReason;
+          finished = true;
+          if (!usageIsUnknown(usage)) {
+            providerWorkObserved = true;
+          }
+          break;
+        }
+        this.#logRawError(plan, event.error.rawMessage);
+        streamError = normalizeProviderError(event.error);
+        break;
+      }
+    } finally {
+      void Promise.resolve(iterator.return?.()).catch(() => undefined);
+    }
+
+    const attemptFinishedAtMs = this.#services.clock.nowMs();
+    if (streamError === null && !finished) {
+      streamError = normalizeProviderError({
+        category: 'UPSTREAM',
+        reason: 'PROVIDER_BAD_RESPONSE',
+        dispatched: true,
+        rawMessage: 'provider stream ended without a finish event',
+      });
+    }
+
+    const usageKnown = !usageIsUnknown(usage);
+    const cost = estimateCost(usage, pricing, usage.estimatedCost);
+    const overCap = streamError?.reason === 'OUTPUT_TOO_LARGE';
+    const status: AttemptStatus =
+      streamError === null ? 'SUCCEEDED' : streamError.code === 'CANCELLED' ? 'CANCELLED' : 'FAILED';
+    if (streamError === null || overCap === true) {
+      // The provider call worked; an over-cap answer is rejected output, not provider failure.
+      breaker.recordSuccess();
+      this.#services.health.recordSuccess(target.providerId, target.modelAlias);
+    } else {
+      breaker.recordFailure(streamError);
+      this.#services.health.recordFailure(target.providerId, target.modelAlias, streamError);
+      if (breaker.snapshot().state === 'OPEN') {
+        this.#services.events.emit({
+          type: 'ai.breaker_opened',
+          atMs: this.#services.clock.nowMs(),
+          payload: { providerId: target.providerId, modelAlias: target.modelAlias },
+        });
+        this.#services.metrics.record({ name: 'ai.breaker_open.count', value: 1, labels: { providerId: target.providerId, modelAlias: target.modelAlias } });
+      }
+    }
+
+    // This attempt's own quota settles immediately — including failed attempts, because every
+    // provider that was paid is counted. A terminal reached with no observed provider work
+    // releases instead of charging the conservative estimate.
+    const dispatched = providerWorkObserved ? 1 : 0;
+    if (dispatched === 0) {
+      await this.#services.quotas.release(providerReservation.reservation);
+    } else {
+      await this.#services.quotas.settle(providerReservation.reservation, {
+        usageKnown,
+        ...(this.#reportedTokens(usage) === undefined ? {} : { tokens: this.#reportedTokens(usage) as number }),
+        ...(cost.amount === undefined ? {} : { cost: cost.amount }),
+      });
+    }
+
+    this.#recordAttempt(ledgerAttempts, attemptRecords, {
+      plan,
+      logicalRequestId,
+      attemptId,
+      sequence,
+      attemptKind: 'PRIMARY',
+      target,
+      startedAtMs: attemptStartedAtMs,
+      finishedAtMs: attemptFinishedAtMs,
+      status,
+      ...(streamError === undefined || streamError === null ? {} : { errorCode: streamError.code, errorReason: streamError.reason }),
+      usage,
+      usageKnown,
+      cost,
+      pricing,
+    });
+    this.#services.metrics.record({
+      name: 'ai.attempt.count',
+      value: 1,
+      labels: { capability: plan.capability, providerId: target.providerId, modelAlias: target.modelAlias, attemptKind: 'PRIMARY' },
+    });
+    this.#services.events.emit({
+      type: 'ai.provider_attempt_finished',
+      atMs: attemptFinishedAtMs,
+      payload: {
+        requestId: plan.requestId,
+        attemptId,
+        sequence,
+        providerId: target.providerId,
+        status,
+        ...(streamError === null ? {} : { errorCode: streamError.code }),
+        ...(streamError === null || streamError.reason === undefined ? {} : { reason: streamError.reason }),
+      },
+    });
+
+    const streamWarnings = [...plan.warnings];
+    if (cost.partial === true || (!usageKnown && Object.keys(usage).length > 0)) {
+      streamWarnings.push(makeWarning('USAGE_ESTIMATED', 'usage or cost for this turn is partial; totals are conservative'));
+    }
+    if (streamError !== null) {
+      const { terminal, result } = failedStream(streamError, usage, finishReason, streamWarnings);
+      yield await settleStream({
+        terminal,
+        result,
+        idempotencyOutcome: 'EXECUTED',
+        settleGate,
+        promptProvenance: planPromptProvenance,
+        dispatched,
+        reservations,
+        usage,
+        usageComplete: usageKnown,
+        cost,
+      });
+      return;
+    }
+    const terminal = makeStreamCompleted({
+      text: accumulated,
+      usage,
+      finishReason,
+      providerMetadata: this.#projection(target, 1, false),
+      latencyMs: latencyMs(),
+      warnings: streamWarnings,
+    });
+    const result = makeSuccessResult({
+      contractVersion: plan.contractVersion,
+      requestId: plan.requestId,
+      capability: plan.capability,
+      capabilityVersion: plan.capabilityVersion,
+      output: accumulated,
+      usage,
+      providerMetadata: this.#projection(target, 1, false),
+      latencyMs: latencyMs(),
+      finishReason,
+      warnings: streamWarnings,
+    });
+    yield await settleStream({
+      terminal,
+      result,
+      idempotencyOutcome: 'EXECUTED',
+      settleGate,
+      promptProvenance: planPromptProvenance,
+      dispatched,
+      reservations,
+      usage,
+      usageComplete: usageKnown,
+      cost,
+    });
+  }
+
+  /**
+   * Replay a stored idempotent result as stream events. A succeeded text result replays its text
+   * as deltas; a stored failure (or a non-text stored output, which a text stream can never have
+   * produced) replays as the stored failure. No provider is called and nothing is charged.
+   */
+  async *#deliverStoredStream(input: {
+    readonly plan: ExecutionPlan;
+    readonly logicalRequestId: string;
+    readonly startedAtMs: number;
+    readonly primary: AttemptTarget | null;
+    readonly stored: AiResult<unknown>;
+    readonly idempotencyOutcome: 'REPLAYED' | 'JOINED';
+    readonly promptProvenance: PromptProvenance | undefined;
+    readonly attemptRecords: ProviderAttemptProvenance[];
+    readonly ledgerAttempts: ProviderAttemptUsageRecord[];
+    readonly skipped: readonly SkipEntry[];
+  }): AsyncGenerator<AiStreamEvent> {
+    const { plan, stored } = input;
+    const latencyMs = Math.max(0, this.#services.clock.nowMs() - input.startedAtMs);
+    const replayWarning = makeWarning('IDEMPOTENT_REPLAY', 'a stored result was returned; no provider was called');
+    const warnings = [...plan.warnings, replayWarning];
+    const settle = async (
+      terminal: AiStreamCompleted | AiStreamFailed,
+      result: AiResult<unknown>,
+      usage: AiUsage,
+    ): Promise<AiStreamCompleted | AiStreamFailed> => {
+      await this.#settleStream({
+        plan,
+        logicalRequestId: input.logicalRequestId,
+        startedAtMs: input.startedAtMs,
+        terminal,
+        result,
+        idempotencyOutcome: input.idempotencyOutcome,
+        settleGate: null,
+        promptProvenance: input.promptProvenance,
+        attemptRecords: input.attemptRecords,
+        ledgerAttempts: input.ledgerAttempts,
+        skipped: input.skipped,
+        dispatched: 0,
+        reservations: [],
+        usage,
+        usageComplete: !usageIsUnknown(usage),
+        cost: { basis: 'UNKNOWN' },
+      });
+      return terminal;
+    };
+    if (stored.status === 'SUCCEEDED' && typeof stored.output === 'string') {
+      const text = stored.output;
+      if (text.length > 0) {
+        yield makeStreamTextDelta(text);
+      }
+      yield await settle(
+        makeStreamCompleted({
+          text,
+          usage: stored.usage,
+          finishReason: stored.finishReason,
+          providerMetadata: stored.providerMetadata,
+          latencyMs,
+          warnings,
+        }),
+        this.#withWarnings(stored, [replayWarning]),
+        stored.usage,
+      );
+      return;
+    }
+    const error =
+      stored.status === 'FAILED' && stored.error !== undefined
+        ? stored.error
+        : makeAiError({ reason: 'INTERNAL_ERROR', message: 'The stored result for this idempotency key is not streamable text.' });
+    const usage = stored.status === 'FAILED' ? stored.usage : {};
+    yield await settle(
+      makeStreamFailed({
+        error,
+        usage,
+        finishReason: stored.finishReason,
+        providerMetadata: stored.providerMetadata,
+        latencyMs,
+        warnings,
+      }),
+      stored.status === 'FAILED'
+        ? this.#withWarnings(stored, [replayWarning])
+        : makeFailureResult({
+            contractVersion: plan.contractVersion,
+            requestId: plan.requestId,
+            capability: plan.capability,
+            capabilityVersion: plan.capabilityVersion,
+            error,
+            usage,
+            providerMetadata: this.#projection(input.primary, 0, false),
+            latencyMs,
+            finishReason: stored.finishReason,
+            warnings,
+          }),
+      usage,
+    );
+  }
+
+  /**
+   * Settle one streamed logical request: one request ledger record plus the attempt records,
+   * request events/metrics and the idempotency settlement. Request-scope quota reservations are
+   * settled with the observed totals — or released when nothing was dispatched, so a refusal or
+   * a pre-work cancel never charges the conservative estimate.
+   */
+  async #settleStream(input: {
+    readonly plan: ExecutionPlan;
+    readonly logicalRequestId: string;
+    readonly startedAtMs: number;
+    readonly terminal: AiStreamCompleted | AiStreamFailed;
+    readonly result: AiResult<unknown>;
+    readonly idempotencyOutcome: 'EXECUTED' | 'REPLAYED' | 'JOINED';
+    readonly settleGate: ((value: AiResult<unknown>) => Promise<void>) | null;
+    readonly promptProvenance: PromptProvenance | undefined;
+    readonly attemptRecords: readonly ProviderAttemptProvenance[];
+    readonly ledgerAttempts: readonly ProviderAttemptUsageRecord[];
+    readonly skipped: readonly SkipEntry[];
+    readonly dispatched: number;
+    readonly reservations: readonly QuotaReservation[];
+    readonly usage: AiUsage;
+    readonly usageComplete: boolean;
+    readonly cost: CostEstimate;
+  }): Promise<void> {
+    const { plan, logicalRequestId, startedAtMs, result } = input;
+    const finishedAtMs = this.#services.clock.nowMs();
+    const allSkips: SkipEntry[] = [...plan.preSkipped.map((skip) => ({ target: null, skip })), ...input.skipped];
+    const skipRecords = allSkips.map(({ target, skip }, index) =>
+      this.#skipRecord(logicalRequestId, input.attemptRecords.length + index + 1, target, skip),
+    );
+    const provenance: ReliabilityProvenance = {
+      logicalRequestId,
+      requestId: plan.requestId,
+      callerPluginId: plan.callerPluginId,
+      capability: plan.capability,
+      capabilityVersion: plan.capabilityVersion,
+      profile: plan.profile,
+      configVersion: plan.snapshot.configVersion,
+      configDigest: plan.snapshot.contentDigest,
+      startedAtMs,
+      ...(input.promptProvenance ?? {}),
+      finishedAtMs,
+      status: result.status,
+      ...(result.error?.code === undefined ? {} : { errorCode: result.error.code }),
+      ...(result.error?.reason === undefined ? {} : { errorReason: result.error.reason }),
+      attempts: [...input.attemptRecords, ...skipRecords],
+      fallbackCount: 0,
+      retryCount: 0,
+      repairCount: 0,
+      skippedCount: allSkips.length,
+      idempotencyOutcome: input.idempotencyOutcome,
+    };
+    const summary = summarize(provenance);
+    await this.#services.ledger.appendRequest(this.#requestRecord(plan, provenance, summary, input.idempotencyOutcome, startedAtMs, finishedAtMs, result));
+    for (const record of input.ledgerAttempts) {
+      await this.#services.ledger.appendAttempt(record);
+    }
+    this.#services.events.emit({
+      type: 'ai.request_finished',
+      atMs: finishedAtMs,
+      payload: {
+        requestId: plan.requestId,
+        capability: plan.capability,
+        status: result.status,
+        attemptCount: input.dispatched,
+        fallbackCount: 0,
+        retryCount: 0,
+        ...(result.error?.code === undefined ? {} : { errorCode: result.error.code }),
+        ...(result.error?.reason === undefined ? {} : { reason: result.error.reason }),
+      },
+    });
+    this.#services.metrics.record({
+      name: result.status === 'SUCCEEDED' ? 'ai.request.success.count' : 'ai.failure.count',
+      value: 1,
+      labels: {
+        capability: plan.capability,
+        status: result.status,
+        ...(result.error?.code === undefined ? {} : { errorCode: result.error.code }),
+        ...(result.error?.reason === undefined ? {} : { reason: result.error.reason }),
+      },
+    });
+    this.#services.metrics.record({
+      name: 'ai.latency.ms',
+      value: Math.max(0, finishedAtMs - startedAtMs),
+      labels: { capability: plan.capability },
+    });
+    if (summary.totalUsage.totalTokens !== undefined) {
+      this.#services.metrics.record({ name: 'ai.tokens.total', value: summary.totalUsage.totalTokens, labels: { capability: plan.capability } });
+    }
+    if (summary.totalCost.amount !== undefined) {
+      this.#services.metrics.record({ name: 'ai.cost.estimated', value: summary.totalCost.amount, labels: { capability: plan.capability } });
+    }
+    if (input.dispatched === 0) {
+      for (const reservation of input.reservations) {
+        await this.#services.quotas.release(reservation);
+      }
+    } else {
+      for (const reservation of input.reservations) {
+        await this.#services.quotas.settle(reservation, {
+          usageKnown: input.usageComplete,
+          ...(input.usage.totalTokens === undefined ? {} : { tokens: input.usage.totalTokens }),
+          ...(input.cost.amount === undefined ? {} : { cost: input.cost.amount }),
+        });
+      }
+    }
+    if (input.settleGate !== null) {
+      await input.settleGate(result);
+    }
+  }
+
+  /* -----------------------------------------------------------------------------------------------
    * Governance helpers
    * -------------------------------------------------------------------------------------------- */
 
@@ -823,15 +1638,32 @@ export class ExecutionCoordinator {
     return fromPolicy ?? plan.requestedMaxOutputTokens ?? 4_096;
   }
 
-  #pinPricing(plan: ExecutionPlan, target: AttemptTarget | null): PricingSnapshot | null {
+  /**
+   * Reported token count for `TOKENS` quota settlement: `totalTokens` when the provider
+   * reports it, else `inputTokens + outputTokens` when both are known (GOVERNANCE.md §5).
+   * Anything less precise stays unknown and settles conservatively — never zero.
+   */
+  #reportedTokens(usage: AiUsage): number | undefined {
+    if (usage.totalTokens !== undefined) {
+      return usage.totalTokens;
+    }
+    if (usage.inputTokens !== undefined && usage.outputTokens !== undefined) {
+      return usage.inputTokens + usage.outputTokens;
+    }
+    return undefined;
+  }
+
+  #pinPricing(plan: ExecutionPlan, target: AttemptTarget | null, atMs: number): PricingSnapshot | null {
     if (target === null) {
       return null;
     }
-    // The price is pinned at request start and never re-read (Phase 32).
+    // The price is pinned when the call starts and never re-read (Phase 32): validity is
+    // evaluated against request-start time, never the snapshot's creation time, so a
+    // long-lived snapshot cannot serve a price past `validUntilMs`.
     return plan.snapshot.governance.pricing.snapshotFor(
       target.providerId,
       { modelAlias: target.modelAlias, modelRef: target.providerModelId },
-      plan.snapshot.createdAtMs,
+      atMs,
     );
   }
 
@@ -968,7 +1800,10 @@ export class ExecutionCoordinator {
             error,
             usage: raw.value.usage,
             dispatched: raw.value.rawError.dispatched,
-            unknownOutcome: raw.value.rawError.dispatched !== true,
+            // Only a missing dispatch marker is an unknown outcome. `dispatched: false` is
+            // provably pre-dispatch (nothing left this process), so a repeat is free of
+            // double-billing risk and must not be gated behind the unknown-outcome policy.
+            unknownOutcome: raw.value.rawError.dispatched === undefined,
             finishReason: raw.value.finishReason,
           };
         }
@@ -985,7 +1820,7 @@ export class ExecutionCoordinator {
           error: normalizeThrown(raw.error),
           usage: {},
           dispatched: rawError?.dispatched,
-          unknownOutcome: rawError?.dispatched !== true,
+          unknownOutcome: rawError?.dispatched === undefined,
           finishReason: 'UNKNOWN',
         };
       }
