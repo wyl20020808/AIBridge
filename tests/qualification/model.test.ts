@@ -8,6 +8,7 @@ import {
   buildQualificationRecord,
   canReplaceEvidence,
   configDigest,
+  deriveQualificationContexts,
   evaluateStaleness,
   evidenceRank,
   fnv1a64,
@@ -288,8 +289,7 @@ describe('bounded store', () => {
   });
 });
 
-describe('file store document', () => {
-  it('round-trips records and rejects unknown format versions', async () => {
+describe('file store document', () => {  it('round-trips records and rejects unknown format versions', async () => {
     const records = [testRecord()];
     const text = serializeQualificationDocument(records);
     expect(text).not.toContain('apiKey');
@@ -298,5 +298,49 @@ describe('file store document', () => {
     const bad = JSON.stringify({ formatVersion: 999, records });
     expect(parseQualificationDocument(bad)).toEqual([]);
     expect(parseQualificationDocument('not json')).toEqual([]);
+  });
+});
+
+describe('config-context derivation', () => {
+  const provider = {
+    providerId: 'p1',
+    preset: 'OPENAI_COMPATIBLE_CUSTOM',
+    enabled: true,
+    family: 'openai-compatible',
+    endpoint: { kind: 'CUSTOM', baseUrl: 'https://relay.example.invalid/v1' },
+    resolvedBaseUrl: 'https://relay.example.invalid/v1',
+    models: [
+      {
+        alias: 'relay.text.primary',
+        providerModelId: 'vendor-model-one',
+        features: ['text', 'streaming', 'usage', 'vision'],
+      },
+    ],
+    adapterVersion: '1.0.0',
+    contractVersion: '1.1',
+  } as const;
+
+  it('builds one context per (model, declared qualification feature)', () => {
+    const contexts = deriveQualificationContexts(provider);
+    // vision is a provider feature but not a Q-feature, so it is excluded.
+    expect(contexts.map((context) => context.identity.feature)).toEqual(['text', 'streaming', 'usage']);
+    expect(contexts.every((context) => context.identity.providerId === 'p1')).toBe(true);
+    expect(contexts.every((context) => context.identity.endpoint.host === 'relay.example.invalid')).toBe(true);
+  });
+
+  it('returns nothing for a disabled provider', () => {
+    expect(deriveQualificationContexts({ ...provider, enabled: false })).toEqual([]);
+  });
+
+  it('carries a cluster through for a preset endpoint', () => {
+    const contexts = deriveQualificationContexts({
+      ...provider,
+      preset: 'XIAOMI_TOKENPLAN',
+      endpoint: { kind: 'PRESET', cluster: 'SGP' },
+      resolvedBaseUrl: 'https://token-plan.sgp.example.invalid',
+      models: [{ alias: 'xiaomi.text.primary', providerModelId: 'mimo', features: ['text'] }],
+    });
+    expect(contexts[0]?.identity.cluster).toBe('SGP');
+    expect(contexts[0]?.identity.providerId).toBe('p1');
   });
 });

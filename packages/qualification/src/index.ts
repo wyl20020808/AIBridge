@@ -109,3 +109,13 @@ export type {
 
 export { classifyQualificationFailure, isFixableInAIBridge } from './classify.js';
 export type { FailureSignal } from './classify.js';
+
+export {
+  deriveQualificationContexts,
+  declaredQualificationFeatures,
+} from './config-context.js';
+export type {
+  QualificationConfigProvider,
+  QualificationConfigModel,
+  QualificationConfigEndpoint,
+} from './config-context.js';
