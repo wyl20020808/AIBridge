@@ -33,11 +33,13 @@ import {
 import { InMemorySecretStore } from '@aibridge/host-sdk';
 import {
   ProviderQualificationRunner,
+  classifyQualificationFailure,
   configDigest,
   providerModelSafeRef,
   safeEndpointIdentity,
   serializeQualificationDocument,
 } from '@aibridge/qualification';
+import { AIBRIDGE_CONTRACT_VERSION } from '@aibridge/contracts';
 import { OpenAiAdapter } from '@aibridge/provider-openai';
 import { DeepSeekAdapter } from '@aibridge/provider-deepseek';
 import { XiaomiTokenPlanAdapter } from '@aibridge/provider-xiaomi-tokenplan';
@@ -47,7 +49,7 @@ const root = fileURLToPath(new URL('..', import.meta.url));
 const MODEL_ALIAS = 'live.primary';
 const CREDENTIAL_HANDLE = 'secret://aibridge/live/api-key';
 const ADAPTER_VERSION = '1.0.0';
-const CONTRACT_VERSION = '1.1';
+const CONTRACT_VERSION = AIBRIDGE_CONTRACT_VERSION;
 
 const only = process.argv[2] ?? 'all';
 
@@ -98,6 +100,12 @@ function assertNoLeak(label, secret, surfaces) {
 
 /** Map a normalized failure to a coarse, safe classification (Phase 44). */
 function classifyError(error) {
+  // Auth and balance failures are operator configuration ("replace the credential / top up the
+  // account"), never provider instability: route them through the shipped classifier so a live
+  // run agrees with `classifyQualificationFailure` instead of reporting PROVIDER_FAILURE.
+  const reason = error?.reason ?? '';
+  if (reason === 'PROVIDER_AUTH_FAILED') return classifyQualificationFailure({ kind: 'auth' });
+  if (reason === 'PROVIDER_BALANCE_EXHAUSTED') return classifyQualificationFailure({ kind: 'balance' });
   const code = error?.code ?? 'PROVIDER_ERROR';
   if (code === 'UNAVAILABLE') return 'NETWORK_ENVIRONMENT';
   if (code === 'RATE_LIMITED' || code === 'QUOTA_EXCEEDED') return 'PROVIDER_FAILURE';
@@ -235,6 +243,8 @@ async function qualifyProvider(entry) {
       endpoint,
       providerModelSafeRef: modelRef,
       declaredFeatures: [...features],
+      ...(entry.authScheme === undefined ? {} : { authScheme: entry.authScheme }),
+      ...(entry.wireProtocol === undefined ? {} : { wireProtocol: entry.wireProtocol }),
     }),
   };
 
@@ -264,6 +274,8 @@ const builders = {
       preset: 'OPENAI_OFFICIAL',
       family: 'openai',
       endpointKind: 'PRESET',
+      authScheme: 'BEARER',
+      wireProtocol: 'OPENAI_RESPONSES',
       adapter: new OpenAiAdapter({
         id: 'openai.live',
         baseUrl,
@@ -283,6 +295,8 @@ const builders = {
       preset: 'DEEPSEEK_OFFICIAL',
       family: 'deepseek',
       endpointKind: 'PRESET',
+      authScheme: 'BEARER',
+      wireProtocol: 'OPENAI_CHAT_COMPLETIONS',
       adapter: new DeepSeekAdapter({
         id: 'deepseek.live',
         baseUrl,
@@ -304,6 +318,8 @@ const builders = {
       family: 'xiaomi',
       endpointKind: 'PRESET',
       cluster: resolvedCluster,
+      authScheme: 'API_KEY_HEADER',
+      wireProtocol: 'OPENAI_CHAT_COMPLETIONS',
       adapter: new XiaomiTokenPlanAdapter({
         id: 'xiaomi.live',
         cluster: resolvedCluster,
@@ -328,6 +344,8 @@ const builders = {
       preset: 'OPENAI_COMPATIBLE_CUSTOM',
       family: 'openai-compatible',
       endpointKind: 'CUSTOM',
+      authScheme,
+      wireProtocol: 'OPENAI_CHAT_COMPLETIONS',
       adapter: new OpenAiCompatibleAdapter({
         id: 'relay.live',
         baseUrl,

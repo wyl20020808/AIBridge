@@ -123,6 +123,35 @@ const CONSUMER_TSCONFIG = {
   include: ['consumer.ts'],
 };
 
+function checkTarballContents(tarballDir, packed) {
+  const violations = [];
+  for (const entry of packed) {
+    const listing = execFileSync('tar', ['-tzf', join(tarballDir, entry)], { encoding: 'utf8' });
+    for (const line of listing.split('\n')) {
+      const path = line.trim();
+      if (path === '') {
+        continue;
+      }
+      const inner = path.replace(/^package\//, '');
+      const allowed =
+        inner === '' ||
+        inner === 'package.json' ||
+        /^README(\..*)?$/i.test(inner) ||
+        /^LICEN[CS]E(\..*)?$/i.test(inner) ||
+        inner.startsWith('dist/');
+      if (!allowed) {
+        violations.push(`${entry}: unexpected top-level entry ${inner}`);
+      }
+      if (/\.test\.[cm]?[jt]s$/.test(inner) || inner.endsWith('.map') || inner.endsWith('.tsbuildinfo')) {
+        violations.push(`${entry}: must never ship ${inner}`);
+      }
+    }
+  }
+  if (violations.length > 0) {
+    throw new Error(`check-portability: tarball content failed\n  - ${violations.join('\n  - ')}`);
+  }
+}
+
 function main() {
   rmSync(work, { recursive: true, force: true });
   mkdirSync(tarballDir, { recursive: true });
@@ -139,6 +168,10 @@ function main() {
       `check-portability: expected ${PACKAGE_DIRS.length} tarballs, found ${packed.length} (${packed.join(', ') || 'none'})`,
     );
   }
+
+  // Tarball contents: only dist/ plus package metadata may ship. Test files, source maps and
+  // build info must never reach a consuming host (V1 stabilization audit).
+  checkTarballContents(tarballDir, packed);
 
   writeFileSync(
     join(projectDir, 'package.json'),
