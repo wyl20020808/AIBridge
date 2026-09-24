@@ -205,10 +205,11 @@ async function sendWithPolicy(options: SendOptions & { readonly method: 'POST' |
 
   try {
     let url = options.url;
+    let headers = options.headers;
     for (let hop = 0; hop <= MAX_REDIRECTS; hop += 1) {
       const init: FetchRequestInitLike = {
         method: options.method,
-        headers: options.headers,
+        headers,
         ...(options.body === undefined ? {} : { body: options.body }),
         signal: controller.signal,
         redirect: 'manual',
@@ -238,6 +239,12 @@ async function sendWithPolicy(options: SendOptions & { readonly method: 'POST' |
         });
         if (!next.safe) {
           throw new ProviderCallError({ category: 'BAD_REQUEST', reason: 'PROVIDER_REQUEST_REJECTED', dispatched: true, rawMessage: `unsafe redirect target (${next.rejection})` });
+        }
+        if (redirectCrossesOrigin(url, target)) {
+          // A credential bound for one origin must never ride along to another: a
+          // compromised/malicious endpoint answering 302 to an attacker host would otherwise
+          // harvest the operator secret. Same-origin redirects keep their headers.
+          headers = stripAuthHeaders(headers);
         }
         url = target;
         continue;
@@ -275,9 +282,38 @@ function resolveRedirect(current: string, location: string): string {
   }
 }
 
+/** True when following a redirect would move the request to a different origin. */
+function redirectCrossesOrigin(current: string, target: string): boolean {
+  let from: OriginLike | null = null;
+  let to: OriginLike | null = null;
+  try {
+    from = new URL(current);
+    to = new URL(target);
+  } catch {
+    // Unparseable here means the safety check above already failed closed; never claim
+    // same-origin when the comparison itself cannot be made.
+    return true;
+  }
+  return from.protocol !== to.protocol || from.hostname !== to.hostname || from.port !== to.port;
+}
+
+/** Drop credential-carrying headers (case-insensitive) before a cross-origin redirect hop. */
+function stripAuthHeaders(headers: Readonly<Record<string, string>>): Record<string, string> {
+  const stripped: Record<string, string> = {};
+  for (const [name, value] of Object.entries(headers)) {
+    const lower = name.toLowerCase();
+    if (lower === 'authorization' || lower === 'api-key') {
+      continue;
+    }
+    stripped[name] = value;
+  }
+  return stripped;
+}
+
 /** The minimal WHATWG URL surface used here. Type-only; erased at emit. */
 type UrlLike = { readonly href: string };
-declare const URL: { new (input: string, base?: string): UrlLike };
+type OriginLike = { readonly protocol: string; readonly hostname: string; readonly port: string };
+declare const URL: { new (input: string, base?: string): UrlLike & OriginLike };
 
 /* -------------------------------------------------------------------------------------------------
  * Chat-dialect response and stream translation

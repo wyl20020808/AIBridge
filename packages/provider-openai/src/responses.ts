@@ -18,9 +18,37 @@ import type {
   ResponsesReasoningEffort,
 } from './config.js';
 
+/** True when following a redirect would move the request to a different origin. */
+function redirectCrossesOrigin(current: string, target: string): boolean {
+  let from: OriginLike | null = null;
+  let to: OriginLike | null = null;
+  try {
+    from = new URL(current, current);
+    to = new URL(target, current);
+  } catch {
+    // Fail closed: never claim same-origin when the comparison cannot be made.
+    return true;
+  }
+  return from.protocol !== to.protocol || from.hostname !== to.hostname || from.port !== to.port;
+}
+
+/** Drop credential-carrying headers (case-insensitive) before a cross-origin redirect hop. */
+function stripAuthHeaders(headers: Readonly<Record<string, string>>): Record<string, string> {
+  const stripped: Record<string, string> = {};
+  for (const [name, value] of Object.entries(headers)) {
+    const lower = name.toLowerCase();
+    if (lower === 'authorization' || lower === 'api-key') {
+      continue;
+    }
+    stripped[name] = value;
+  }
+  return stripped;
+}
+
 /** The minimal WHATWG URL surface. Type-only; erased at emit. */
 type UrlLike = { readonly href: string };
-declare const URL: { new (input: string, base?: string): UrlLike };
+type OriginLike = { readonly protocol: string; readonly hostname: string; readonly port: string };
+declare const URL: { new (input: string, base?: string): UrlLike & OriginLike };
 
 export const MAX_REDIRECTS = 3;
 export const RAW_MESSAGE_MAX_LENGTH = 512;
@@ -131,10 +159,11 @@ export async function sendRequest(options: SendOptions): Promise<FetchResponseLi
 
   try {
     let url = options.url;
+    let headers = options.headers;
     for (let hop = 0; hop <= MAX_REDIRECTS; hop += 1) {
       const init: FetchRequestInitLike = {
         method: options.method,
-        headers: options.headers,
+        headers,
         ...(options.body === undefined ? {} : { body: options.body }),
         signal: controller.signal,
         redirect: 'manual',
@@ -173,6 +202,11 @@ export async function sendRequest(options: SendOptions): Promise<FetchResponseLi
             dispatched: true,
             rawMessage: `unsafe redirect target (${next.rejection})`,
           });
+        }
+        if (redirectCrossesOrigin(url, target)) {
+          // Credentials stay with their origin: a cross-origin redirect (even to a safe
+          // public host) must not carry the operator secret to a third party.
+          headers = stripAuthHeaders(headers);
         }
         url = target;
         continue;
@@ -244,7 +278,11 @@ export function classifyOpenAiFailure(input: {
     return { category: 'BAD_REQUEST', reason: 'MODEL_UNAVAILABLE', ...base };
   }
   if (shape.includes('insufficient')) {
-    return { category: 'AUTH', reason: 'PROVIDER_AUTH_FAILED', ...base };
+    // `insufficient_quota` / `insufficient_balance`: the configured account cannot pay — an
+    // operator must repair the deployment, not the credential. Stage 6 names this precisely
+    // (`PROVIDER_BALANCE_EXHAUSTED`, so a different provider with a different wallet may still
+    // serve); it must not surface as broken-credential. Mirrors `classifyHttpFailure`.
+    return { category: 'AUTH', reason: 'PROVIDER_BALANCE_EXHAUSTED', ...base };
   }
   if (shape.includes('rate_limit') || shape.includes('over_rate')) {
     return { category: 'RATE_LIMIT', reason: 'PROVIDER_THROTTLED', ...base };
@@ -259,6 +297,10 @@ export function classifyOpenAiFailure(input: {
   const status = input.status;
   if (status === 401 || status === 403) {
     return { category: 'AUTH', reason: 'PROVIDER_AUTH_FAILED', ...base };
+  }
+  if (status === 402) {
+    // Payment required — the account cannot pay (mirrors `classifyHttpFailure`).
+    return { category: 'AUTH', reason: 'PROVIDER_BALANCE_EXHAUSTED', ...base };
   }
   if (status === 429) {
     return { category: 'RATE_LIMIT', reason: 'PROVIDER_THROTTLED', ...base };

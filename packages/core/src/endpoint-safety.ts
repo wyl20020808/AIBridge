@@ -156,9 +156,11 @@ export function checkEndpointSafety(rawUrl: string, options: EndpointSafetyOptio
   }
 
   // `URL` normalizes integer/hex/octal IPv4 encodings to dotted-quad, so the checks below see
-  // the address the resolver will actually use.
+  // the address the resolver will actually use. A trailing DNS root dot (`localhost.`) is
+  // equivalent to the bare name for resolution but defeats exact/suffix name matching, so it is
+  // stripped before every name check (IPv4 dotted-quads never end in a bare dot after parsing).
   const hostname = parsed.hostname.toLowerCase();
-  const bare = stripIpv6Brackets(hostname);
+  const bare = stripIpv6Brackets(hostname).replace(/\.$/, '');
 
   if (!development) {
     if (BLOCKED_HOSTNAMES.has(bare) || bare.endsWith('.localhost') || bare.endsWith('.local')) {
