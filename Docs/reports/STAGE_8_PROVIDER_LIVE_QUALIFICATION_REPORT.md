@@ -174,9 +174,10 @@ All four are `IMPLEMENTED`. A `LIVE_NOT_RUN` row never fails the stage (Phase 56
 - Commits:
   - `7266bac` `feat(qualification): add provider qualification model and runner`
   - `2174ddc` `test(qualification): add live-safe provider qualification harness`
-  - `77a04e0` `docs: document provider live qualification`
+  - `6bc2a82` `docs: document provider live qualification`
 - Base: `3fbe8cd` (canonical `main`).
 - Working tree clean at stage end.
+- Merged into canonical `main` with `--no-ff` as `0a7f091` (see the addendum below).
 
 ## NEXT
 
@@ -192,3 +193,64 @@ All four are `IMPLEMENTED`. A `LIVE_NOT_RUN` row never fails the stage (Phase 56
   absent in this session.
 - Stop policy (Phase 60) respected: no frozen contract change, no OJPlatform/AlgoQuest modification,
   no destructive operation, no unfixed secret issue.
+
+---
+
+# ADDENDUM — CANONICAL MERGE + CURRENT REAL RELAY QUALIFICATION
+
+This addendum supersedes the "live-qualified provider NO" statement in the `NEXT` section above for the
+current canonical revision. It records the canonical merge of Stage 8 and the first real provider
+qualification run through the Stage 8 runner.
+
+## Canonical merge
+
+- Base (`main` before): `3fbe8cd7ed55fdc5b7a2fba11edc24b0bf6b7506`.
+- Feature head: `6bc2a82` (`feature/stage8-provider-live-qualification`).
+- Merge commit (`--no-ff`, no conflicts): `0a7f091`.
+- Canonical `npm run verify`: **PASS** (typecheck, lint, gates, 629 tests / 57 files, build,
+  portability — 12 packages packed, offline-installed, typechecked, smoke-tested).
+- Working tree clean; no remote.
+
+## Current real Relay qualification
+
+- Provider family: **Generic OpenAI-Compatible Relay** (`openai-compatible`), preset
+  `OPENAI_COMPATIBLE_CUSTOM`, adapter `OpenAiCompatibleAdapter`, auth `BEARER`.
+- Model alias: `live.primary`; safe model ref: `deepseek-v4.#987198450affc76e`.
+- Safe endpoint projection: `https` / `hgapi.dieqiyun.top` (no path, query or credential recorded).
+- Feature declaration: `text, structuredJson, streaming, usage`. `reasoning` deliberately **not**
+  declared (a relay's DeepSeek may not expose official reasoning semantics).
+- Command: `npm run qualify:relay` (credentials injected process-only; never written to disk).
+
+| Feature | Status | Latency | Safe usage | Finish |
+| --- | --- | --- | --- | --- |
+| text | **LIVE_QUALIFIED** | 2305 ms | in 13 / out 2 / total 15 | STOP |
+| structuredJson | **LIVE_QUALIFIED** | 2140 ms | in 67 / out 6 / total 73 | STOP |
+| streaming | **LIVE_QUALIFIED** | 1108 ms | (not reported on terminal) | STOP |
+| usage | **LIVE_QUALIFIED** | 1273 ms | in 13 / out 2 / total 15 | STOP |
+
+- Config digest: `cfg#79f7be7b5679c455`; adapter version `1.0.0`; contract version `1.1`.
+- **JSON_SCHEMA / REASONING / CANCELLATION**: not declared for this relay model and therefore not
+  probed. Their deterministic adapter tests remain authoritative.
+- **Transient note**: a first run returned `LIVE_FAILED` / `ADAPTER_BUG` on `usage` only; a repeated
+  run qualified it. The raw endpoint and repeated isolated calls returned well-formed bodies, so this
+  was a transient upstream `PROVIDER_BAD_RESPONSE` (the shipped classifier is conservative and flags
+  any unparseable response as `ADAPTER_BUG`). No adapter defect was found; no code was changed.
+- **DECLARATION_MISMATCH**: none — every declared feature qualified.
+
+## Security
+
+- Credential: **PRESENT** (process-only), absent from source, config, docs, logs, git, the
+  qualification record and the environment. Repo-wide scan for the key: **no match**.
+- Prompt persisted: **NO**. Raw response persisted: **NO**. Reasoning content persisted: **NO**.
+
+## Integration freeze
+
+`code.debug.analyze@1.0`, `promptApplied` / `promptVersion`, the trusted/untrusted channels and the
+OJ host contract are **UNCHANGED**. OJPlatform and AlgoQuest were **not modified**.
+
+## Current status
+
+- Relay: `IMPLEMENTED`; current TEXT / STRUCTURED_JSON / STREAMING / USAGE = `LIVE_QUALIFIED`.
+- A `LIVE_QUALIFIED` provider is now available for a future AlgoQuest Real-AI Sync; the recommended
+  provider is the **Generic OpenAI-Compatible Relay**.
+

@@ -88,7 +88,7 @@ which is an acceptable Stage 4 outcome.
 | **Capabilities** | Declared per model (`text`, `structuredJson`, `jsonSchema`, `reasoning`, `streaming`, `usage`, …). What a relay supports is what is **declared or probed** — `OpenAI-compatible` never implies the full OpenAI feature set. |
 | **Structured** | Operator-declared mode: `JSON_OBJECT`, `JSON_SCHEMA` (native, first layer) or `PROMPT_ONLY`. The AIBridge validator is the final boundary in all three modes. |
 | **Known limitations** | Relay dialects vary; unsupported knobs (`thinking`, `max_completion_tokens`) are off unless declared via the dialect configuration. Health scoring and circuit breaking are Stage 6. |
-| **Live status** | `IMPLEMENTED` / `LIVE_QUALIFIED` — one real round trip (text + structured + stream) against a real relay endpoint, credential absent from every output surface |
+| **Live status** | `IMPLEMENTED` / `LIVE_QUALIFIED` — current Stage 8 per-feature qualification (text, structuredJson, streaming, usage) against a real relay endpoint; credential absent from every output surface (see [`reports/STAGE_8_PROVIDER_LIVE_QUALIFICATION_REPORT.md`](reports/STAGE_8_PROVIDER_LIVE_QUALIFICATION_REPORT.md) addendum) |
 
 ---
 
