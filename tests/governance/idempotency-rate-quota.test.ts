@@ -87,6 +87,34 @@ describe('idempotency registry (Phase 17–20)', () => {
     }
   });
 
+  it('returns the original prompt provenance to a replay', async () => {
+    const clock = new TestClock(0);
+    const registry = new IdempotencyRegistry({ store: new InMemoryIdempotencyStore({ clock }), clock });
+    const firstLabels = { promptApplied: true, promptVersion: 'prompt.v1' } as const;
+    const first = await registry.gate(identity, 'fp-1', 'lreq-1', firstLabels);
+    if (first.kind === 'PROCEED') {
+      await first.settle(resultOf());
+    }
+
+    const replay = await registry.gate(identity, 'fp-1', 'lreq-2', { promptApplied: true, promptVersion: 'prompt.v2' });
+
+    expect(replay).toMatchObject({ kind: 'REPLAY', promptProvenance: firstLabels });
+  });
+
+  it('returns the in-flight winner prompt provenance to a joiner', async () => {
+    const clock = new TestClock(0);
+    const registry = new IdempotencyRegistry({ store: new InMemoryIdempotencyStore({ clock }), clock });
+    const firstLabels = { promptApplied: true, promptVersion: 'prompt.v1' } as const;
+    const first = await registry.gate(identity, 'fp-1', 'lreq-1', firstLabels);
+    const joined = await registry.gate(identity, 'fp-1', 'lreq-2', { promptApplied: true, promptVersion: 'prompt.v2' });
+
+    expect(joined).toMatchObject({ kind: 'JOIN', promptProvenance: firstLabels });
+    if (first.kind === 'PROCEED' && joined.kind === 'JOIN') {
+      await first.settle(resultOf());
+      expect(await joined.result).toEqual(resultOf());
+    }
+  });
+
   it('is IDEMPOTENCY_CONFLICT for the same key with a different fingerprint (Phase 20)', async () => {
     const clock = new TestClock(0);
     const registry = new IdempotencyRegistry({ store: new InMemoryIdempotencyStore({ clock }), clock });
@@ -103,6 +131,20 @@ describe('idempotency registry (Phase 17–20)', () => {
     expect(idempotencyIdentityKey({ ...identity, callerPluginId: 'other' })).not.toBe(key);
     expect(idempotencyIdentityKey({ ...identity, capability: 'ai.structured.generate' })).not.toBe(key);
     expect(idempotencyIdentityKey({ ...identity, idempotencyKey: 'turn-2' })).not.toBe(key);
+  });
+
+  it('encodes delimiter-bearing identity components without tuple collisions', () => {
+    const left = { ...identity, callerPluginId: 'a|b', capability: 'c' };
+    const right = { ...identity, callerPluginId: 'a', capability: 'b|c' };
+
+    expect(idempotencyIdentityKey(left)).not.toBe(idempotencyIdentityKey(right));
+  });
+
+  it('preserves bracket characters instead of sanitizing them into another identity', () => {
+    const bracketed = { ...identity, idempotencyKey: '[x]' };
+    const substituted = { ...identity, idempotencyKey: '·x·' };
+
+    expect(idempotencyIdentityKey(bracketed)).not.toBe(idempotencyIdentityKey(substituted));
   });
 
   it('expires after the retention window and evicts least-recently-used entries', async () => {

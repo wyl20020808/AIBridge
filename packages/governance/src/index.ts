@@ -97,6 +97,7 @@ export {
   type IdempotencyClaim,
   type IdempotencyGate,
   type IdempotencyIdentity,
+  type PromptProvenance,
   type IdempotencyRecord,
   type IdempotencyRegistryOptions,
   type IdempotencyStatus,

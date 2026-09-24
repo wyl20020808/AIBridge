@@ -10,10 +10,10 @@
  *  - the same key with a different request fingerprint is `IDEMPOTENCY_CONFLICT`, never a stale
  *    answer (Phase 20).
  *
- * What is stored is the request **fingerprint** and the consumer-visible terminal **result** — the
- * safe projection that a replay must return. Never a prompt, never raw provider data, never a
- * credential (Phase 19). Retention is 15 minutes with an LRU ceiling of 10 000 entries
- * (ARCHITECTURE.md §14.3); a durable, encrypted store is a later host option, not V1.
+ * What is stored is the request **fingerprint**, the consumer-visible terminal **result**, and the
+ * caller's opaque prompt-provenance labels. Never prompt content, raw provider data or credentials
+ * (Phase 19). Retention is 15 minutes with an LRU ceiling of 10 000 entries (ARCHITECTURE.md §14.3);
+ * a durable, encrypted store is a later host option, not V1.
  */
 import type { AiResult } from '@aibridge/contracts';
 import type { Clock } from '@aibridge/host-sdk';
@@ -33,11 +33,16 @@ export type IdempotencyIdentity = {
   readonly idempotencyKey: string;
 };
 
-/** A joined, collision-free identity key. */
+export type PromptProvenance = {
+  readonly promptApplied?: boolean;
+  readonly promptVersion?: string;
+};
+
+/** An injective tuple encoding; components remain exact and are never sanitized or hashed. */
 export function idempotencyIdentityKey(identity: IdempotencyIdentity): string {
   return [identity.callerPluginId, identity.capability, identity.capabilityVersion, identity.idempotencyKey]
-    .map((part) => part.replace(/[[\]]/g, '·'))
-    .join('|');
+    .map((part) => `${part.length}:${part}`)
+    .join('');
 }
 
 /**
@@ -67,6 +72,8 @@ export type IdempotencyRecord = {
   readonly createdAtMs: number;
   readonly expiresAtMs: number;
   readonly logicalRequestId: string;
+  /** Only bounded opaque labels needed to attribute a faithful replay; never prompt text. */
+  readonly promptProvenance?: PromptProvenance;
   /** The consumer-visible terminal result. Present only in `SUCCEEDED` / `FAILED_FINAL`. */
   readonly result?: AiResult<unknown>;
 };
@@ -192,8 +199,8 @@ export class InMemoryIdempotencyStore implements IdempotencyStorePort {
 
 export type IdempotencyGate =
   | { readonly kind: 'PROCEED'; readonly settle: (result: AiResult<unknown>) => Promise<void> }
-  | { readonly kind: 'REPLAY'; readonly result: AiResult<unknown> }
-  | { readonly kind: 'JOIN'; readonly result: Promise<AiResult<unknown>> }
+  | { readonly kind: 'REPLAY'; readonly result: AiResult<unknown>; readonly promptProvenance?: PromptProvenance }
+  | { readonly kind: 'JOIN'; readonly result: Promise<AiResult<unknown>>; readonly promptProvenance?: PromptProvenance }
   | { readonly kind: 'CONFLICT' };
 
 export type IdempotencyRegistryOptions = {
@@ -223,7 +230,12 @@ export class IdempotencyRegistry {
   }
 
   /** The gate every logical call passes, before governance and before any dispatch (Phase 51). */
-  async gate(identity: IdempotencyIdentity, fingerprint: string, logicalRequestId: string): Promise<IdempotencyGate> {
+  async gate(
+    identity: IdempotencyIdentity,
+    fingerprint: string,
+    logicalRequestId: string,
+    promptProvenance?: PromptProvenance,
+  ): Promise<IdempotencyGate> {
     const key = idempotencyIdentityKey(identity);
     const hashedFingerprint = hashRequestFingerprint(fingerprint);
     const nowMs = this.#clock.nowMs();
@@ -234,6 +246,7 @@ export class IdempotencyRegistry {
       createdAtMs: nowMs,
       expiresAtMs: nowMs + IDEMPOTENCY_RETENTION_MS,
       logicalRequestId,
+      ...(promptProvenance === undefined ? {} : { promptProvenance }),
     });
 
     switch (claim.kind) {
@@ -241,13 +254,23 @@ export class IdempotencyRegistry {
         return { kind: 'CONFLICT' };
       case 'REPLAY': {
         const result = claim.record.result;
-        return result === undefined ? { kind: 'CONFLICT' } : { kind: 'REPLAY', result };
+        return result === undefined
+          ? { kind: 'CONFLICT' }
+          : {
+              kind: 'REPLAY',
+              result,
+              ...(claim.record.promptProvenance === undefined ? {} : { promptProvenance: claim.record.promptProvenance }),
+            };
       }
       case 'JOIN': {
         const inFlight = this.#inFlight.get(key);
         return inFlight === undefined
           ? { kind: 'CONFLICT' }
-          : { kind: 'JOIN', result: inFlight.result };
+          : {
+              kind: 'JOIN',
+              result: inFlight.result,
+              ...(claim.record.promptProvenance === undefined ? {} : { promptProvenance: claim.record.promptProvenance }),
+            };
       }
       case 'PROCEED': {
         let resolve!: (value: AiResult<unknown>) => void;

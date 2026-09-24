@@ -80,6 +80,7 @@ import {
   type MetricsSink,
   type OperationalEventSink,
   type PricingSnapshot,
+  type PromptProvenance,
   type ProviderAttemptProvenance,
   type ProviderAttemptUsageRecord,
   type QuotaManager,
@@ -284,19 +285,29 @@ export class ExecutionCoordinator {
       configDigest: snapshot.contentDigest,
       startedAtMs,
     };
+    const planPromptProvenance: PromptProvenance | undefined =
+      plan.promptApplied === undefined
+        ? undefined
+        : {
+            promptApplied: plan.promptApplied,
+            ...(plan.promptVersion === undefined ? {} : { promptVersion: plan.promptVersion }),
+          };
 
     const finish = async (
       result: AiResult<unknown>,
       idempotencyOutcome: 'EXECUTED' | 'REPLAYED' | 'JOINED',
       settleGate: ((value: AiResult<unknown>) => Promise<void>) | null,
+      provenanceOverride?: { readonly promptProvenance: PromptProvenance | undefined },
     ): Promise<ExecutionOutcome> => {
       const finishedAtMs = this.#services.clock.nowMs();
+      const promptProvenance = provenanceOverride === undefined ? planPromptProvenance : provenanceOverride.promptProvenance;
       const allSkips: SkipEntry[] = [...plan.preSkipped.map((skip) => ({ target: null, skip })), ...skipped];
       const skipRecords = allSkips.map(({ target, skip }, index) =>
         this.#skipRecord(logicalRequestId, attemptRecords.length + index + 1, target, skip),
       );
       const provenance: ReliabilityProvenance = {
         ...provenanceBase,
+        ...(promptProvenance ?? {}),
         finishedAtMs,
         status: result.status,
         ...(result.error?.code === undefined ? {} : { errorCode: result.error.code }),
@@ -369,13 +380,13 @@ export class ExecutionCoordinator {
         },
         plan.fingerprint,
         logicalRequestId,
+        planPromptProvenance,
       );
       if (gate.kind === 'CONFLICT') {
         // Same key, different request (Phase 20): never return the old answer, never dispatch again.
         const error = makeAiError({
           reason: 'IDEMPOTENCY_CONFLICT',
           message: 'This idempotency key was already used for a different request body.',
-          details: { idempotencyKey: plan.idempotencyKey },
         });
         return finish(this.#failureResult(plan, error, startedAtMs, [], { finalTarget, attemptCount: 0, finalUsage }), 'EXECUTED', null);
       }
@@ -383,7 +394,7 @@ export class ExecutionCoordinator {
         const result = this.#withWarnings(gate.result, [
           makeWarning('IDEMPOTENT_REPLAY', 'a stored result was returned; no provider was called'),
         ]);
-        return finish(result, 'REPLAYED', null);
+        return finish(result, 'REPLAYED', null, { promptProvenance: gate.promptProvenance });
       }
       if (gate.kind === 'JOIN') {
         const joined = await gate.result.catch(() =>
@@ -392,7 +403,7 @@ export class ExecutionCoordinator {
         const result = this.#withWarnings(joined, [
           makeWarning('IDEMPOTENT_REPLAY', 'joined an in-flight duplicate; one provider execution served both'),
         ]);
-        return finish(result, 'JOINED', null);
+        return finish(result, 'JOINED', null, { promptProvenance: gate.promptProvenance });
       }
       settleGate = gate.settle;
     }
@@ -1321,8 +1332,8 @@ export class ExecutionCoordinator {
       totalUsageComplete: summary.totalUsageComplete,
       totalCost: summary.totalCost,
       idempotencyOutcome,
-      ...(plan.promptApplied === undefined ? {} : { promptApplied: plan.promptApplied }),
-      ...(plan.promptVersion === undefined ? {} : { promptVersion: plan.promptVersion }),
+      ...(provenance.promptApplied === undefined ? {} : { promptApplied: provenance.promptApplied }),
+      ...(provenance.promptVersion === undefined ? {} : { promptVersion: provenance.promptVersion }),
     };
   }
 

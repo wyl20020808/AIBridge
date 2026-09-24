@@ -35,6 +35,24 @@ describe('idempotency in execution (Phase 17–20, 51)', () => {
     expect(replay.provenance.idempotencyOutcome).toBe('REPLAYED');
   });
 
+  it('replays the original prompt provenance when an equal request carries a different label', async () => {
+    const harness = makeHarness({ providers: [{ id: 'relay', behavior: script(served) }] });
+    await harness.runtime.executeObserved(
+      textTurn(31, { promptApplied: true, promptVersion: 'consumer.prompt.v1' }),
+      callerContext,
+    );
+
+    const replay = await harness.runtime.executeObserved(
+      textTurn(31, { requestId: 'req-32', promptApplied: true, promptVersion: 'consumer.prompt.v2' }),
+      callerContext,
+    );
+
+    expect(replay.provenance).toMatchObject({ promptApplied: true, promptVersion: 'consumer.prompt.v1' });
+    const usage = await harness.ledger.requests(replay.provenance.logicalRequestId);
+    expect(usage[0]).toMatchObject({ promptApplied: true, promptVersion: 'consumer.prompt.v1', idempotencyOutcome: 'REPLAYED' });
+    expect(harness.providers['relay']?.callCount).toBe(1);
+  });
+
   it('suppresses a concurrent duplicate — one execution chain serves both callers', async () => {
     let release: (() => void) | undefined;
     const gate = new Promise<void>((resolve) => {
@@ -51,8 +69,14 @@ describe('idempotency in execution (Phase 17–20, 51)', () => {
         },
       ],
     });
-    const first = harness.runtime.executeObserved(textTurn(1), callerContext);
-    const second = harness.runtime.executeObserved(textTurn(1), callerContext);
+    const first = harness.runtime.executeObserved(
+      textTurn(1, { promptApplied: true, promptVersion: 'winner.prompt.v1' }),
+      callerContext,
+    );
+    const second = harness.runtime.executeObserved(
+      textTurn(1, { promptApplied: true, promptVersion: 'joiner.prompt.v2' }),
+      callerContext,
+    );
     release?.();
     const [firstOutcome, secondOutcome] = await Promise.all([first, second]);
 
@@ -60,6 +84,11 @@ describe('idempotency in execution (Phase 17–20, 51)', () => {
     expect(secondOutcome.result.status).toBe('SUCCEEDED');
     expect(harness.providers['relay']?.callCount).toBe(1);
     expect([firstOutcome.provenance.idempotencyOutcome, secondOutcome.provenance.idempotencyOutcome].sort()).toEqual(['EXECUTED', 'JOINED']);
+    const executed = [firstOutcome, secondOutcome].find((outcome) => outcome.provenance.idempotencyOutcome === 'EXECUTED');
+    const joined = [firstOutcome, secondOutcome].find((outcome) => outcome.provenance.idempotencyOutcome === 'JOINED');
+    expect(joined?.provenance).toMatchObject({ promptApplied: true, promptVersion: executed?.provenance.promptVersion });
+    const usage = await harness.ledger.requests(joined?.provenance.logicalRequestId);
+    expect(usage[0]).toMatchObject({ promptApplied: true, promptVersion: executed?.provenance.promptVersion, idempotencyOutcome: 'JOINED' });
   });
 
   it('is IDEMPOTENCY_CONFLICT for one key with a different body — never a stale answer (Phase 20)', async () => {
@@ -71,6 +100,7 @@ describe('idempotency in execution (Phase 17–20, 51)', () => {
     );
     expect(conflicting.result.status).toBe('FAILED');
     expect(conflicting.result.error?.reason).toBe('IDEMPOTENCY_CONFLICT');
+    expect(JSON.stringify(conflicting.result)).not.toContain('turn-1');
     expect(harness.providers['relay']?.callCount).toBe(1);
   });
 
