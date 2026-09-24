@@ -29,6 +29,18 @@ E2E row. The OJPlatform adapter/grant/provenance qualification gap and the
 deliberately unrun real AlgoQuest E2E keep the commissioned qualification partial. See
 [`reports/STAGE_7_SPECIALIZED_CAPABILITY_REPORT.md`](reports/STAGE_7_SPECIALIZED_CAPABILITY_REPORT.md).
 
+## Commissioned Stage 8 — provider live qualification + operational hardening
+
+**PASS** — a portable `@aibridge/qualification` package turns "declared support" into a repeatable
+per-provider/model/feature qualification with a strict `DECLARED` / `DETERMINISTIC_TESTED` /
+`LIVE_QUALIFIED` (`LIVE_FAILED` / `LIVE_NOT_RUN` / `UNSUPPORTED` / `STALE`) separation, secret-free
+records, bounded storage, staleness and drift detection, a unified runner and safe operator
+diagnostics. Qualification is metadata only: it never alters runtime health semantics, never changes
+routing, and never runs at startup. This separately commissioned scope does not renumber or close the
+legacy Stage 7 usage/cost durability or Stage 8 specialized-pack programme rows. See
+[`PROVIDER_QUALIFICATION.md`](PROVIDER_QUALIFICATION.md) and
+[`reports/STAGE_8_PROVIDER_LIVE_QUALIFICATION_REPORT.md`](reports/STAGE_8_PROVIDER_LIVE_QUALIFICATION_REPORT.md).
+
 ## What exists today
 
 - [`ARCHITECTURE.md`](ARCHITECTURE.md) — responsibility split (`AI_BRIDGE_`, `HOST_`,
@@ -57,6 +69,11 @@ deliberately unrun real AlgoQuest E2E keep the commissioned qualification partia
 - [`CONFIG_RELOAD.md`](CONFIG_RELOAD.md) — runtime config snapshots, atomic reload and rollback.
 - [`fixtures/`](fixtures/) — 18 compatibility fixtures across generic, education and commissioned
   code-debug examples.
+- [`PROVIDERS.md`](PROVIDERS.md) — the four provider接入 paths, wire protocols, auth, error tables
+  and per-feature support.
+- [`PROVIDER_QUALIFICATION.md`](PROVIDER_QUALIFICATION.md) — the Stage 8 live-qualification model:
+  the assurance ladder, secret-free identity, safe records, staleness/drift, storage, the runner and
+  safe operator diagnostics.
 - [`ROADMAP.md`](ROADMAP.md) — Stages 1–10, the Stage 2 checklist, the AlgoQuest parallel plan.
 - `plugin.manifest.json` — host-neutral identity `ai.bridge`, `"entry": null`.
 
@@ -100,6 +117,17 @@ configuration:
 - `@aibridge/core` — `endpoint-safety` (fail-closed SSRF checks for operator endpoints).
 - Live harness: `npm run test:live-providers` + `test:live:{openai,deepseek,xiaomi-tokenplan,relay}`
   — opt-in, environment-only credentials, `SKIP`/`LIVE_NOT_RUN` without credentials.
+
+Commissioned Stage 8 added one portable package and a qualification runner — no provider, no UI, no
+production change, no startup probe:
+
+- `packages/qualification` (`@aibridge/qualification`) — depends only on `@aibridge/contracts`:
+  the qualification status ladder, a secret-free identity (safe endpoint projection + config digest),
+  the closed `ProviderQualificationRecord`, pure staleness/drift evaluation, a bounded
+  `QualificationStorePort` with in-memory and versioned file-backed reference stores, the unified
+  `ProviderQualificationRunner` and safe `getQualificationStatus()` diagnostics.
+- `npm run qualify:{providers,openai,deepseek,xiaomi,relay}` — opt-in live qualification producing
+  safe records; a missing credential is `LIVE_NOT_RUN`, never a failure, and never part of `verify`.
 
 Stage 3 added two more portable packages and paid down the ESLint deferral:
 

@@ -21,9 +21,11 @@ vendor event types never cross the adapter boundary
 | **Xiaomi MiMo Token Plan** | `@aibridge/provider-xiaomi-tokenplan` | `XIAOMI_TOKENPLAN` | OpenAI-compatible chat | `LIVE_NOT_RUN` |
 | **Generic OpenAI-Compatible / Relay** | `@aibridge/provider-openai-compatible` | `OPENAI_COMPATIBLE_CUSTOM` | OpenAI-compatible chat | `LIVE_QUALIFIED` |
 
-Status vocabulary: `IMPLEMENTED` (deterministic tests), `LIVE_QUALIFIED` (a real round trip was
-executed), `LIVE_NOT_RUN` (no credentials — never a failure), `LIVE_FAILED`. All four are
-`IMPLEMENTED`. Live runs are **opt-in** (`npm run test:live-providers`) and never touch CI.
+Status vocabulary: `IMPLEMENTED` (deterministic tests), `DECLARED` / `DETERMINISTIC_TESTED` /
+`LIVE_QUALIFIED` / `LIVE_FAILED` / `LIVE_NOT_RUN` / `UNSUPPORTED` / `STALE` (see
+[`PROVIDER_QUALIFICATION.md`](PROVIDER_QUALIFICATION.md)). All four are `IMPLEMENTED`. Live runs
+are **opt-in** (`npm run test:live-providers` or `npm run qualify:providers`) and never touch CI.
+A missing credential reports `LIVE_NOT_RUN` and is **not** a failure.
 
 > All examples below use placeholders (`secret://…`, `MODEL_ALIAS`, `example.invalid`). No real
 > key, endpoint credential or model deployment name is committed anywhere in this repository.
@@ -105,7 +107,9 @@ which is an acceptable Stage 4 outcome.
 - **Timeout & cancellation**: the frozen three-deadline arithmetic; cancellation is terminal and
   aborts the outbound call.
 - **Probing**: `probe()` is **non-generative** (`GET /models` connectivity + credential check) and
-  is never run at startup. Generative qualification is the opt-in live harness only.
+  is never run at startup. Generative qualification is the opt-in live harness only. Repeatable
+  **live qualification** (per-feature, secret-free records, staleness) lives in
+  `@aibridge/qualification`; see [`PROVIDER_QUALIFICATION.md`](PROVIDER_QUALIFICATION.md).
 
 ## Deterministic coverage
 

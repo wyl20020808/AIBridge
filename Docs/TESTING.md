@@ -82,6 +82,25 @@ Each row names the failure it catches:
 smoke only when two providers have credentials and reports `SKIP` otherwise — a `SKIP` never fails
 the stage.
 
+### 1.3 Stage 8 qualification suites
+
+Deterministic and always in `verify`:
+
+| Test | Fails when |
+| --- | --- |
+| `tests/qualification/model.test.ts` | the status vocabulary drifts, an endpoint projection keeps a path/query/userinfo, a config digest is not deterministic, a record keeps a forbidden field, or a staleness axis is missed |
+| `tests/qualification/runner.test.ts` | a credential-less live run becomes anything but `LIVE_NOT_RUN`, a probe throw aborts the other features, an invalid request becomes a failed dispatch, or a failure class leaves the closed set |
+| `tests/qualification/diagnostics.test.ts` | diagnostics leak a credential or raw response, a stale record keeps advertising `LIVE_QUALIFIED`, or the default policy is not `ALLOW_DECLARED` |
+| `tests/qualification/security.test.ts` | a malicious provider error body (credential sentinel, fake PII, stack trace) reaches a record, the file store or diagnostics |
+| `tests/qualification/integration-freeze.test.ts` | `code.debug.analyze@1.0`, prompt provenance, the trusted/untrusted split or the closed reason set moves (Phase 47) |
+| `tests/properties/qualification-*.test.ts` | a property/fuzz invariant breaks (credential absence never FAIL; model drift invalidates; no cross-model contamination; no secret field) |
+
+`npm run qualify:{providers,openai,deepseek,xiaomi,relay}` is **opt-in** and never part of `verify`:
+it runs real per-feature qualification, reports `LIVE_NOT_RUN` for a provider without credentials,
+and writes a safe record document. A provider's `LIVE_NOT_RUN` never fails the stage
+([`PROVIDER_QUALIFICATION.md`](PROVIDER_QUALIFICATION.md)).
+
+
 ---
 
 ## 2. Security tests — mechanically asserted
