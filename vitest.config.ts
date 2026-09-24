@@ -15,6 +15,7 @@ export default defineConfig({
       '@aibridge/host-sdk': resolvePackage('./packages/host-sdk/src/index.ts'),
       '@aibridge/governance': resolvePackage('./packages/governance/src/index.ts'),
       '@aibridge/runtime': resolvePackage('./packages/runtime/src/index.ts'),
+      '@aibridge/qualification': resolvePackage('./packages/qualification/src/index.ts'),
       '@aibridge/provider-openai-compatible': resolvePackage('./packages/provider-openai-compatible/src/index.ts'),
       '@aibridge/provider-openai': resolvePackage('./packages/provider-openai/src/index.ts'),
       '@aibridge/provider-deepseek': resolvePackage('./packages/provider-deepseek/src/index.ts'),

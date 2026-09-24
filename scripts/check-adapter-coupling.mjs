@@ -101,6 +101,7 @@ for (const packageDir of [
   'packages/core',
   'packages/host-sdk',
   'packages/runtime',
+  'packages/qualification',
   'packages/provider-openai-compatible',
   'packages/provider-openai',
   'packages/provider-deepseek',
