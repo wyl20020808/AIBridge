@@ -63,6 +63,16 @@ export {
 } from './output.js';
 
 export {
+  CODE_DEBUG_ISSUE_CATEGORIES,
+  CODE_DEBUG_LIMITATIONS,
+  CODE_DEBUG_MAX_FINDINGS,
+  CODE_DEBUG_MAX_INPUT_BYTES,
+  CODE_DEBUG_MAX_LIMITATIONS,
+  parseCodeDebugInput,
+  validateCodeDebugOutput,
+} from './code-debug.js';
+
+export {
   OPERATOR_DETAIL_MAX_LENGTH,
   OPERATOR_LOG_EVENTS,
   RecordingOperatorLog,

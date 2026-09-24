@@ -73,7 +73,7 @@ import {
 } from '@aibridge/contracts';
 import {
   CapabilityRegistry,
-  GENERIC_CAPABILITY_REGISTRATIONS,
+  BUILTIN_CAPABILITY_REGISTRATIONS,
   KillSwitchRegistry,
   allowsCallerOutputSchema,
   isRecord,
@@ -240,10 +240,10 @@ export function systemClock(): Clock {
   return { nowMs: () => Date.now() };
 }
 
-/** The registry every V1 build starts from: the two generic primitives, as metadata. */
+/** The registry every V1 build starts from: generic primitives and stable specialized built-ins. */
 export function defaultCapabilityRegistry(): CapabilityRegistry {
   const registry = new CapabilityRegistry();
-  for (const registration of GENERIC_CAPABILITY_REGISTRATIONS) {
+  for (const registration of BUILTIN_CAPABILITY_REGISTRATIONS) {
     registry.register(registration);
   }
   return registry;

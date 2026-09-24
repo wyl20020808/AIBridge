@@ -1,12 +1,4 @@
-/**
- * Built-in generic capability descriptors (CAPABILITIES.md §1.1).
- *
- * Exactly two primitives ship in V1, and both are registered here as **metadata**. There is no
- * handler and no execution: Stage 2 defines what the primitives promise, not how they run.
- *
- * Structural safety only. Neither policy carries a business rule — that is how
- * `ai.structured.generate` stays reusable instead of growing one product's rules.
- */
+/** Built-in capability descriptors. Registrations remain metadata-only. */
 import {
   AIBRIDGE_FIELD_DIALECT,
   MODEL_PROFILES,
@@ -55,6 +47,55 @@ const TEXT_OUTPUT_SCHEMA: OutputSchema = {
   ],
 };
 
+const CODE_DEBUG_INPUT_SCHEMA: OutputSchema = {
+  kind: 'INLINE',
+  schemaId: 'code.debug.analyze.input',
+  version: '1.0',
+  dialect: AIBRIDGE_FIELD_DIALECT,
+  fields: [
+    {
+      name: 'instructions',
+      type: 'STRING',
+      required: true,
+      description: 'Consumer-authored instructions for this diagnostic call.',
+    },
+    {
+      name: 'context',
+      type: 'OBJECT_ARRAY',
+      required: true,
+      description: 'Untrusted sourceCode and optional diagnostics values supplied by the caller.',
+    },
+  ],
+};
+
+/** Flat output shape; runtime validation further closes category and line-reference values. */
+export const CODE_DEBUG_OUTPUT_SCHEMA: OutputSchema = {
+  kind: 'INLINE',
+  schemaId: 'code.debug.analyze.output',
+  version: '1.0',
+  dialect: AIBRIDGE_FIELD_DIALECT,
+  fields: [
+    {
+      name: 'issueCategories',
+      type: 'STRING_ARRAY',
+      required: true,
+      description: 'Closed categories: SYNTAX, TYPE, BUILD, RUNTIME, LOGIC, OTHER.',
+    },
+    {
+      name: 'diagnosticContextRefs',
+      type: 'STRING_ARRAY',
+      required: true,
+      description: 'One supplied-context line or range reference for each issue category.',
+    },
+    {
+      name: 'limitations',
+      type: 'STRING_ARRAY',
+      required: true,
+      description: 'Closed limitations: INSUFFICIENT_CONTEXT, AMBIGUOUS_EVIDENCE, NO_RELEVANT_LOCATION.',
+    },
+  ],
+};
+
 /** `ai.text.generate`'s policy: structural safety only, no business claim. */
 export const GENERIC_TEXT_POLICY: CapabilityPolicy = {
   id: 'ai-text-default',
@@ -73,6 +114,15 @@ export const GENERIC_STRUCTURED_POLICY: CapabilityPolicy = {
   outputRules: ['SCHEMA_CONFORMANCE', 'NO_UNKNOWN_FIELDS', 'SIZE_WITHIN_LIMIT'],
   forbiddenOutput: [],
   maxOutputBytes: 65_536,
+};
+
+const CODE_DEBUG_POLICY: CapabilityPolicy = {
+  id: 'code-debug-analyze-structural',
+  version: '1.0',
+  inputAllowList: ['instructions', 'context'],
+  outputRules: ['SCHEMA_CONFORMANCE', 'NO_UNKNOWN_FIELDS', 'SIZE_WITHIN_LIMIT'],
+  forbiddenOutput: [],
+  maxOutputBytes: 16_384,
 };
 
 /**
@@ -114,6 +164,31 @@ export const GENERIC_CAPABILITY_REGISTRATIONS: readonly CapabilityRegistration[]
     schemaOwnership: { input: 'REGISTRY', output: 'CALLER', policy: 'REGISTRY' },
     status: 'AVAILABLE',
   },
+];
+
+export const CODE_DEBUG_CAPABILITY_REGISTRATION: CapabilityRegistration = {
+  id: 'code.debug.analyze',
+  version: '1.0',
+  kind: 'SPECIALIZED',
+  requiredPrimitive: 'ai.structured.generate',
+  inputSchema: CODE_DEBUG_INPUT_SCHEMA,
+  outputSchema: CODE_DEBUG_OUTPUT_SCHEMA,
+  policy: CODE_DEBUG_POLICY,
+  profiles: [...MODEL_PROFILES],
+  requirements: structuredGenerationRequirements(),
+  limits: { maxInputBytes: 32_768, maxOutputBytes: 16_384, totalTimeoutMs: 20_000, maxCallsPerTurn: 1 },
+  allowGenericFallback: false,
+  retention: 'METADATA_ONLY',
+  schemaOwnership: { input: 'REGISTRY', output: 'REGISTRY', policy: 'REGISTRY' },
+  status: 'AVAILABLE',
+  readiness: 'STABLE',
+  instructionMode: 'CONSUMER_COMPOSED',
+};
+
+/** Static built-ins registered by the default runtime; the generic list remains generic-only. */
+export const BUILTIN_CAPABILITY_REGISTRATIONS: readonly CapabilityRegistration[] = [
+  ...GENERIC_CAPABILITY_REGISTRATIONS,
+  CODE_DEBUG_CAPABILITY_REGISTRATION,
 ];
 
 /** True when the capability lets the caller author its output schema. */

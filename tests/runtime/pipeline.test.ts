@@ -9,7 +9,7 @@
 import { KillSwitchRegistry } from '@aibridge/core';
 import { ScriptedProviderAdapter, TestClock, textStep, structuredStep } from '@aibridge/host-sdk';
 import { AiRuntime } from '@aibridge/runtime';
-import { parseAiResult, type AiResult } from '@aibridge/contracts';
+import { parseAiResult, type AiResult, type StructuredGenerateInput, type ValidationResult } from '@aibridge/contracts';
 import { describe, expect, it } from 'vitest';
 
 type Fixtures = {
@@ -72,6 +72,40 @@ function expectFailed(result: AiResult<unknown>, reason: string): void {
   expect(result.error?.reason, JSON.stringify(result.error)).toBe(reason);
 }
 
+type CodeDebugHelpers = {
+  readonly parseCodeDebugInput: (value: unknown, path?: string) => ValidationResult<StructuredGenerateInput>;
+  readonly validateCodeDebugOutput: (
+    value: unknown,
+    input: StructuredGenerateInput,
+    path?: string,
+  ) => ValidationResult<unknown>;
+};
+
+async function codeDebugHelpers(): Promise<CodeDebugHelpers> {
+  const runtimeModule = await import('@aibridge/runtime');
+  const helpers = runtimeModule as unknown as Partial<CodeDebugHelpers>;
+  expect(typeof helpers.parseCodeDebugInput).toBe('function');
+  expect(typeof helpers.validateCodeDebugOutput).toBe('function');
+  return helpers as CodeDebugHelpers;
+}
+
+function codeDebugInput(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    instructions: 'Use the consumer-authored debugging instructions.',
+    context: [
+      { name: 'sourceCode', label: 'Source code', type: 'STRING', untrusted: true, value: 'first line\nsecond line\nthird line' },
+      { name: 'diagnostics', label: 'Diagnostics', type: 'STRING', untrusted: true, value: 'error one\nerror two' },
+    ],
+    ...overrides,
+  };
+}
+
+const validCodeDebugOutput = {
+  issueCategories: ['SYNTAX', 'BUILD'],
+  diagnosticContextRefs: ['sourceCode:2', 'diagnostics:1-2'],
+  limitations: ['AMBIGUOUS_EVIDENCE'],
+} as const;
+
 describe('runtime — response normalization', () => {
   it('normalizes a text answer into the generic result shape', async () => {
     const { runtime, adapter } = makeRuntime();
@@ -114,6 +148,90 @@ describe('runtime — response normalization', () => {
     const result = await runtime.execute(structuredRequest(), context());
     expectFailed(result, 'EXTRACTION_FAILED');
     expect(result.error?.code).toBe('INVALID_RESPONSE');
+  });
+});
+
+describe('code.debug.analyze@1.0 — registry-owned input and output validation', () => {
+  it('keeps consumer instructions separate from untrusted code and diagnostics', async () => {
+    const { parseCodeDebugInput } = await codeDebugHelpers();
+    const result = parseCodeDebugInput(codeDebugInput());
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.value.instructions).toBe('Use the consumer-authored debugging instructions.');
+      expect(result.value.context.map((entry) => [entry.name, entry.untrusted, entry.value])).toEqual([
+        ['sourceCode', true, 'first line\nsecond line\nthird line'],
+        ['diagnostics', true, 'error one\nerror two'],
+      ]);
+    }
+  });
+
+  it.each([
+    ['missing source code', { context: [{ name: 'diagnostics', label: 'Diagnostics', type: 'STRING', untrusted: true, value: 'error' }] }],
+    ['unknown context name', { context: [...(codeDebugInput()['context'] as unknown[]), { name: 'expectedOutput', label: 'Expected output', type: 'STRING', untrusted: true, value: 'secret' }] }],
+    ['duplicate source code', { context: [...(codeDebugInput()['context'] as unknown[]), (codeDebugInput()['context'] as unknown[])[0]] }],
+    ['trusted caller data', { context: [{ name: 'sourceCode', label: 'Source code', type: 'STRING', untrusted: false, value: 'code' }] }],
+    ['non-string context type', { context: [{ name: 'sourceCode', label: 'Source code', type: 'OBJECT', untrusted: true, value: 'code' }] }],
+    ['non-string context value', { context: [{ name: 'sourceCode', label: 'Source code', type: 'STRING', untrusted: true, value: 42 }] }],
+  ])('rejects %s at the specialized boundary', async (_caseName, override) => {
+    const { parseCodeDebugInput } = await codeDebugHelpers();
+    expect(parseCodeDebugInput(codeDebugInput(override)).ok).toBe(false);
+  });
+
+  it('rejects instructions beyond the shared contract bound', async () => {
+    const { parseCodeDebugInput } = await codeDebugHelpers();
+    expect(parseCodeDebugInput(codeDebugInput({ instructions: 'i'.repeat(8_001) })).ok).toBe(false);
+  });
+
+  it('rejects specialized inputs beyond the registered byte limit', async () => {
+    const { parseCodeDebugInput } = await codeDebugHelpers();
+    const input = codeDebugInput({
+      context: [{ name: 'sourceCode', label: 'Source code', type: 'STRING', untrusted: true, value: 'c'.repeat(33_000) }],
+    });
+    expect(parseCodeDebugInput(input).ok).toBe(false);
+  });
+
+  it('accepts a flat closed diagnostic result with references into supplied contexts', async () => {
+    const { parseCodeDebugInput, validateCodeDebugOutput } = await codeDebugHelpers();
+    const input = parseCodeDebugInput(codeDebugInput());
+    expect(input.ok).toBe(true);
+    if (input.ok) {
+      expect(validateCodeDebugOutput(validCodeDebugOutput, input.value).ok).toBe(true);
+    }
+  });
+
+  it('rejects unknown categories, limitations, and arbitrary output fields', async () => {
+    const { parseCodeDebugInput, validateCodeDebugOutput } = await codeDebugHelpers();
+    const input = parseCodeDebugInput(codeDebugInput());
+    expect(input.ok).toBe(true);
+    if (input.ok) {
+      expect(validateCodeDebugOutput({ ...validCodeDebugOutput, issueCategories: ['FULL_SOLUTION'] }, input.value).ok).toBe(false);
+      expect(validateCodeDebugOutput({ ...validCodeDebugOutput, limitations: ['PRIVATE_TESTS'] }, input.value).ok).toBe(false);
+      expect(validateCodeDebugOutput({ ...validCodeDebugOutput, response: 'Here is the fix' }, input.value).ok).toBe(false);
+    }
+  });
+
+  it('rejects mismatched finding and reference array lengths', async () => {
+    const { parseCodeDebugInput, validateCodeDebugOutput } = await codeDebugHelpers();
+    const input = parseCodeDebugInput(codeDebugInput());
+    expect(input.ok).toBe(true);
+    if (input.ok) {
+      expect(validateCodeDebugOutput({ ...validCodeDebugOutput, diagnosticContextRefs: ['sourceCode:2'] }, input.value).ok).toBe(false);
+    }
+  });
+
+  it.each([
+    ['a context that was not supplied', ['sourceCode:2', 'hiddenTests:1']],
+    ['a zero line', ['sourceCode:0', 'diagnostics:1']],
+    ['a line past the end of its context', ['sourceCode:4', 'diagnostics:1']],
+    ['a reversed line range', ['sourceCode:3-2', 'diagnostics:1']],
+  ])('rejects references to %s', async (_caseName, refs) => {
+    const { parseCodeDebugInput, validateCodeDebugOutput } = await codeDebugHelpers();
+    const input = parseCodeDebugInput(codeDebugInput());
+    expect(input.ok).toBe(true);
+    if (input.ok) {
+      expect(validateCodeDebugOutput({ ...validCodeDebugOutput, diagnosticContextRefs: refs }, input.value).ok).toBe(false);
+    }
   });
 });
 

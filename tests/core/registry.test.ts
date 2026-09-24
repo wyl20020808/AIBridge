@@ -14,6 +14,11 @@ import { describe, expect, it } from 'vitest';
 
 import { unwrap, unwrapFailure } from '../helpers/assertions.js';
 
+type BuiltinCapabilityExports = {
+  readonly CODE_DEBUG_CAPABILITY_REGISTRATION?: CapabilityRegistration;
+  readonly BUILTIN_CAPABILITY_REGISTRATIONS?: readonly CapabilityRegistration[];
+};
+
 const specialized: CapabilityRegistration = {
   id: 'education.idea.evaluate',
   version: '1.0',
@@ -44,9 +49,46 @@ describe('capability registry — metadata only, conflict-aware', () => {
       expect(descriptor.id).toBe(registration.id);
       expect(descriptor.kind).toBe('GENERIC');
     }
+    expect(GENERIC_CAPABILITY_REGISTRATIONS).toHaveLength(2);
     expect(registry.size).toBe(2);
     expect(registry.has('ai.text.generate')).toBe(true);
     expect(registry.get('ai.text.generate', '1.0')?.policyId).toBe('ai-text-default');
+  });
+
+  it('keeps generic and built-in registration lists semantically distinct', async () => {
+    const coreExports = (await import('@aibridge/core')) as unknown as BuiltinCapabilityExports;
+    const debugRegistration = coreExports.CODE_DEBUG_CAPABILITY_REGISTRATION;
+    const builtins = coreExports.BUILTIN_CAPABILITY_REGISTRATIONS;
+
+    expect(GENERIC_CAPABILITY_REGISTRATIONS).toHaveLength(2);
+    expect(GENERIC_CAPABILITY_REGISTRATIONS.every((entry) => entry.kind === 'GENERIC')).toBe(true);
+    expect(debugRegistration?.id).toBe('code.debug.analyze');
+    expect(builtins).toHaveLength(3);
+    expect(builtins).toEqual([...GENERIC_CAPABILITY_REGISTRATIONS, debugRegistration]);
+  });
+
+  it('registers code debug as stable consumer-composed metadata with registry-owned schemas', async () => {
+    const coreExports = (await import('@aibridge/core')) as unknown as BuiltinCapabilityExports;
+    const registration = coreExports.CODE_DEBUG_CAPABILITY_REGISTRATION;
+    if (registration === undefined) {
+      throw new Error('code.debug.analyze registration is missing');
+    }
+    const registry = new CapabilityRegistry();
+    const descriptor = unwrap(registry.register(registration));
+
+    expect(descriptor).toMatchObject({
+      id: 'code.debug.analyze',
+      version: '1.0',
+      kind: 'SPECIALIZED',
+      readiness: 'STABLE',
+      instructionMode: 'CONSUMER_COMPOSED',
+      requiredPrimitive: 'ai.structured.generate',
+      allowGenericFallback: false,
+      limits: { maxCallsPerTurn: 1 },
+      schemaOwnership: { input: 'REGISTRY', output: 'REGISTRY', policy: 'REGISTRY' },
+    });
+    expect(descriptor.inputSchema.kind).toBe('INLINE');
+    expect(descriptor.outputSchema.kind).toBe('INLINE');
   });
 
   it('declares stable consumer-composed defaults on generic descriptors', () => {
