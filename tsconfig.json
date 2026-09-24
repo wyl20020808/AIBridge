@@ -9,6 +9,8 @@
     { "path": "packages/provider-openai-compatible" },
     { "path": "packages/provider-openai" },
     { "path": "packages/provider-deepseek" },
-    { "path": "packages/provider-xiaomi-tokenplan" }
+    { "path": "packages/provider-xiaomi-tokenplan" },
+    { "path": "packages/host" },
+    { "path": "packages/suite-all" }
   ]
 }

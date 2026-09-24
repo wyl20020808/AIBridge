@@ -1,0 +1,30 @@
+{
+  "name": "@aibridge/host",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "AI Bridge host-bindable server plugin entry: accepts host ports, constructs the runtime from configuration, registers the generic capabilities, and exposes execute/status/dispose. Names no host, imports no host internals.",
+  "license": "UNLICENSED",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "sideEffects": false,
+  "scripts": {
+    "build": "tsc -b"
+  },
+  "dependencies": {
+    "@aibridge/contracts": "0.1.0",
+    "@aibridge/core": "0.1.0",
+    "@aibridge/governance": "0.1.0",
+    "@aibridge/host-sdk": "0.1.0",
+    "@aibridge/runtime": "0.1.0"
+  }
+}

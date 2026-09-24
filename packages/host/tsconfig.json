@@ -1,0 +1,16 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "dist",
+    "tsBuildInfoFile": "dist/.tsbuildinfo"
+  },
+  "references": [
+    { "path": "../contracts" },
+    { "path": "../core" },
+    { "path": "../governance" },
+    { "path": "../host-sdk" },
+    { "path": "../runtime" }
+  ],
+  "include": ["src/**/*.ts"]
+}

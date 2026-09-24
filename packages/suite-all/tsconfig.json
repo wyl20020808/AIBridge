@@ -1,0 +1,17 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "dist",
+    "tsBuildInfoFile": "dist/.tsbuildinfo"
+  },
+  "references": [
+    { "path": "../contracts" },
+    { "path": "../provider-openai-compatible" },
+    { "path": "../provider-openai" },
+    { "path": "../provider-deepseek" },
+    { "path": "../provider-xiaomi-tokenplan" },
+    { "path": "../runtime" }
+  ],
+  "include": ["src/**/*.ts"]
+}

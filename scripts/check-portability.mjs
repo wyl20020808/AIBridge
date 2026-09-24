@@ -32,6 +32,8 @@ const PACKAGE_DIRS = [
   'provider-openai',
   'provider-deepseek',
   'provider-xiaomi-tokenplan',
+  'host',
+  'suite-all',
 ];
 
 /**

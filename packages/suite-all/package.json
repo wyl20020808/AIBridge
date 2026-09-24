@@ -1,0 +1,31 @@
+{
+  "name": "@aibridge/suite-all",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "The complete AI Bridge provider adapter factory table: preset → adapter constructor plus preset endpoint resolution. The one place a host's trusted bootstrap touches concrete providers.",
+  "license": "UNLICENSED",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "sideEffects": false,
+  "scripts": {
+    "build": "tsc -b"
+  },
+  "dependencies": {
+    "@aibridge/contracts": "0.1.0",
+    "@aibridge/provider-deepseek": "0.1.0",
+    "@aibridge/provider-openai": "0.1.0",
+    "@aibridge/provider-openai-compatible": "0.1.0",
+    "@aibridge/provider-xiaomi-tokenplan": "0.1.0",
+    "@aibridge/runtime": "0.1.0"
+  }
+}
