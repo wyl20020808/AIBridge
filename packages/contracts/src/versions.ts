@@ -17,10 +17,10 @@
 export const PLUGIN_API_VERSION = 1 as const;
 
 /** Request envelope, response envelope and error vocabulary. */
-export const AIBRIDGE_CONTRACT_VERSION = '1.1' as const;
+export const AIBRIDGE_CONTRACT_VERSION = '1.2' as const;
 
-/** The `AiRequestEnvelope` / consumer request field set. `1.1` — additive Stage 6 provenance fields. */
-export const GENERIC_REQUEST_SCHEMA_VERSION = '1.1' as const;
+/** The `AiRequestEnvelope` / consumer request field set. `1.2` — Stage 7 provenance-pair and idempotency-key rules. */
+export const GENERIC_REQUEST_SCHEMA_VERSION = '1.2' as const;
 
 /** The `AiResult` response envelope field set. */
 export const AIBRIDGE_RESPONSE_SCHEMA_VERSION = '1.1' as const;
@@ -34,8 +34,8 @@ export const STRUCTURED_OUTPUT_SCHEMA_VERSION = '1.0' as const;
 /** AI Bridge ↔ provider adapter. Internal; not a frozen public contract. */
 export const PROVIDER_ADAPTER_API_VERSION = 1 as const;
 
-/** The capability descriptor shape. */
-export const CAPABILITY_DESCRIPTOR_VERSION = '1.0' as const;
+/** The capability descriptor shape. `1.1` adds readiness and consumer instruction mode. */
+export const CAPABILITY_DESCRIPTOR_VERSION = '1.1' as const;
 
 /** The shared JSON fixture set version. */
 export const FIXTURE_SET_VERSION = '1.0' as const;

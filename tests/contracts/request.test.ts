@@ -39,9 +39,23 @@ describe('consumer request — the untrusted half', () => {
     expect(withProvenance.promptVersion).toBe('encouragement.v3');
     // Absent is fully valid.
     expect(unwrap(parseConsumerAiRequest(validRequest())).promptApplied).toBeUndefined();
-    // Malformed: a non-boolean flag, and a version carrying prompt-looking content.
+    // Explicitly unprompted requests may not claim a prompt version.
+    expect(unwrap(parseConsumerAiRequest({ ...validRequest(), promptApplied: false })).promptApplied).toBe(false);
+    // Malformed: incomplete/inconsistent pairs, wrong type, and prompt-looking content.
+    expect(parseConsumerAiRequest({ ...validRequest(), promptApplied: true }).ok).toBe(false);
+    expect(parseConsumerAiRequest({ ...validRequest(), promptVersion: 'encouragement.v3' }).ok).toBe(false);
+    expect(parseConsumerAiRequest({ ...validRequest(), promptApplied: false, promptVersion: 'encouragement.v3' }).ok).toBe(false);
     expect(parseConsumerAiRequest({ ...validRequest(), promptApplied: 'yes' }).ok).toBe(false);
     expect(parseConsumerAiRequest({ ...validRequest(), promptVersion: 'bad version with spaces' }).ok).toBe(false);
+  });
+
+  it('accepts bounded opaque printable idempotency keys including AlgoQuest colon keys', () => {
+    expect(parseConsumerAiRequest({ ...validRequest(), idempotencyKey: 'task-7:command-8' }).ok).toBe(true);
+    expect(parseConsumerAiRequest({ ...validRequest(), idempotencyKey: 'turn[7]/command:8' }).ok).toBe(true);
+    expect(parseConsumerAiRequest({ ...validRequest(), idempotencyKey: 'task 7:command-8' }).ok).toBe(false);
+    expect(parseConsumerAiRequest({ ...validRequest(), idempotencyKey: 'task\n7:command-8' }).ok).toBe(false);
+    expect(parseConsumerAiRequest({ ...validRequest(), idempotencyKey: 'task-é:command-8' }).ok).toBe(false);
+    expect(parseConsumerAiRequest({ ...validRequest(), idempotencyKey: 'x'.repeat(129) }).ok).toBe(false);
   });
 
   it('rejects every trusted-only field before reading any other field', () => {

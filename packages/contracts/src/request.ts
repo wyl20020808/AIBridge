@@ -78,7 +78,8 @@ export const FORBIDDEN_CONSUMER_FIELDS = [
 ] as const;
 
 export const REQUEST_ID_PATTERN = /^[A-Za-z0-9._-]{1,64}$/;
-export const IDEMPOTENCY_KEY_PATTERN = /^[A-Za-z0-9._-]{1,128}$/;
+/** Bounded opaque printable ASCII; allows delimiters such as AlgoQuest's `task:command` form. */
+export const IDEMPOTENCY_KEY_PATTERN = /^[\x21-\x7E]{1,128}$/;
 export const POLICY_ID_PATTERN = /^[a-z0-9][a-z0-9._-]{0,63}$/;
 
 export type ConsumerAiRequest<TInput = unknown> = {
@@ -262,6 +263,16 @@ export function parseConsumerAiRequest<TInput = unknown>(
   const promptVersion = value['promptVersion'];
   if (promptVersion !== undefined && (typeof promptVersion !== 'string' || !PROMPT_VERSION_PATTERN.test(promptVersion))) {
     issues.push(createIssue('PATTERN_MISMATCH', at(path, 'promptVersion'), 'must match ^[A-Za-z0-9._-]{1,64}$'));
+  }
+  const promptVersionValid = typeof promptVersion === 'string' && PROMPT_VERSION_PATTERN.test(promptVersion);
+  if (
+    (promptApplied === true && !promptVersionValid) ||
+    (promptApplied === false && promptVersion !== undefined) ||
+    (promptApplied === undefined && promptVersionValid)
+  ) {
+    issues.push(
+      createIssue('INVALID_VALUE', at(path, 'promptVersion'), 'must be present exactly when promptApplied is true'),
+    );
   }
 
   if (issues.length > 0) {

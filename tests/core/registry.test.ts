@@ -8,6 +8,7 @@ import {
   allowsCallerOutputSchema,
   authorizeCapabilityCall,
 } from '@aibridge/core';
+import { parseCapabilityDescriptor } from '@aibridge/contracts';
 import type { CapabilityRegistration } from '@aibridge/core';
 import { describe, expect, it } from 'vitest';
 
@@ -46,6 +47,61 @@ describe('capability registry — metadata only, conflict-aware', () => {
     expect(registry.size).toBe(2);
     expect(registry.has('ai.text.generate')).toBe(true);
     expect(registry.get('ai.text.generate', '1.0')?.policyId).toBe('ai-text-default');
+  });
+
+  it('declares stable consumer-composed defaults on generic descriptors', () => {
+    const descriptors = new CapabilityRegistry();
+    GENERIC_CAPABILITY_REGISTRATIONS.forEach((registration) => unwrap(descriptors.register(registration)));
+
+    for (const descriptor of descriptors.list()) {
+      expect(descriptor.readiness).toBe('STABLE');
+      expect(descriptor.instructionMode).toBe('CONSUMER_COMPOSED');
+    }
+  });
+
+  it('keeps specialized registrations reserved by default and reads legacy descriptors', () => {
+    const registry = new CapabilityRegistry();
+    const descriptor = unwrap(registry.register(specialized));
+    expect(descriptor.readiness).toBe('RESERVED');
+    expect(descriptor.instructionMode).toBe('CONSUMER_COMPOSED');
+
+    const { readiness: _readiness, instructionMode: _instructionMode, ...legacyDescriptor } = descriptor;
+    const parsedLegacy = unwrap(parseCapabilityDescriptor(legacyDescriptor));
+    expect(parsedLegacy.readiness).toBeUndefined();
+    expect(parsedLegacy.instructionMode).toBeUndefined();
+  });
+
+  it('preserves an explicit readiness and rejects unsupported descriptor modes', () => {
+    const registry = new CapabilityRegistry();
+    const descriptor = unwrap(
+      registry.register({
+        ...specialized,
+        readiness: 'EXPERIMENTAL',
+        instructionMode: 'CONSUMER_COMPOSED',
+      }),
+    );
+    expect(descriptor.readiness).toBe('EXPERIMENTAL');
+    expect(descriptor.instructionMode).toBe('CONSUMER_COMPOSED');
+    expect(unwrap(parseCapabilityDescriptor(descriptor)).readiness).toBe('EXPERIMENTAL');
+    expect(unwrap(parseCapabilityDescriptor(descriptor)).instructionMode).toBe('CONSUMER_COMPOSED');
+
+    const invalidReadinessDescriptor = {
+      ...descriptor,
+      readiness: 'FUTURE',
+    };
+    expect(parseCapabilityDescriptor(invalidReadinessDescriptor).ok).toBe(false);
+    expect(
+      parseCapabilityDescriptor({ ...descriptor, instructionMode: 'CAPABILITY_MANAGED' }).ok,
+    ).toBe(false);
+    expect(
+      registry.register({ ...specialized, readiness: 'FUTURE' } as unknown as CapabilityRegistration).ok,
+    ).toBe(false);
+    expect(
+      registry.register({
+        ...specialized,
+        instructionMode: 'CAPABILITY_MANAGED',
+      } as unknown as CapabilityRegistration).ok,
+    ).toBe(false);
   });
 
   it('is idempotent for a byte-identical re-registration', () => {

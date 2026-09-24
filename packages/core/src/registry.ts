@@ -25,8 +25,10 @@ import {
   type CapabilityAvailability,
   type CapabilityDescriptor,
   type CapabilityKind,
+  type CapabilityInstructionMode,
   type CapabilityLimits,
   type CapabilityPolicy,
+  type CapabilityReadiness,
   type CapabilityRequirements,
   type ModelProfile,
   type OutputSchema,
@@ -65,6 +67,10 @@ export type CapabilityRegistration = {
   readonly schemaOwnership: SchemaOwnership;
   /** Base availability before governance is applied. Defaults to `AVAILABLE`. */
   readonly status?: CapabilityAvailability;
+  /** Contract maturity; generic defaults to STABLE and specialized defaults to RESERVED. */
+  readonly readiness?: CapabilityReadiness;
+  /** Instructions remain consumer-authored; defaults to CONSUMER_COMPOSED. */
+  readonly instructionMode?: CapabilityInstructionMode;
 };
 
 /** Build the consumer-visible descriptor from a registration and a resolved status. */
@@ -77,6 +83,8 @@ export function toCapabilityDescriptor(
     version: registration.version,
     kind: registration.kind,
     status,
+    readiness: registration.readiness ?? (registration.kind === 'GENERIC' ? 'STABLE' : 'RESERVED'),
+    instructionMode: registration.instructionMode ?? 'CONSUMER_COMPOSED',
     requiredPrimitive: registration.requiredPrimitive,
     profiles: [...registration.profiles],
     requirements: registration.requirements ?? {},
@@ -107,6 +115,15 @@ function validateRegistration(registration: CapabilityRegistration): readonly Va
   }
   if (typeof registration.requiredPrimitive !== 'string' || registration.requiredPrimitive.length === 0) {
     issues.push(createIssue('INVALID_TYPE', '$.requiredPrimitive', 'must be a non-empty capability id'));
+  }
+  if (
+    registration.readiness !== undefined &&
+    !['STABLE', 'EXPERIMENTAL', 'RESERVED'].includes(registration.readiness)
+  ) {
+    issues.push(createIssue('INVALID_VALUE', '$.readiness', 'must be STABLE, EXPERIMENTAL or RESERVED'));
+  }
+  if (registration.instructionMode !== undefined && registration.instructionMode !== 'CONSUMER_COMPOSED') {
+    issues.push(createIssue('INVALID_VALUE', '$.instructionMode', 'must be CONSUMER_COMPOSED'));
   }
   for (const key of ['maxInputBytes', 'maxOutputBytes', 'totalTimeoutMs', 'maxCallsPerTurn'] as const) {
     if (!isPositiveInteger(registration.limits[key])) {
