@@ -280,6 +280,30 @@ export function structuredTurn(turn: number, overrides: Record<string, unknown> 
   };
 }
 
+/** One consumer-composed bounded code-debug turn; the source remains explicitly untrusted. */
+export function codeDebugTurn(turn: number, overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    contractVersion: '1.2',
+    requestId: `req-${turn}`,
+    idempotencyKey: `turn-${turn}`,
+    capability: 'code.debug.analyze',
+    capabilityVersion: '1.0',
+    profile: 'balanced',
+    promptApplied: true,
+    promptVersion: 'consumer.debug.v1',
+    input: {
+      instructions: 'Classify only evidence in the supplied source.',
+      context: [{ name: 'sourceCode', label: 'Source code', type: 'STRING', untrusted: true, value: 'const value = ;' }],
+    },
+    ...overrides,
+  };
+}
+
+export const codeDebugCallerContext = {
+  callerPluginId: 'test.caller',
+  grantedPermissions: ['code.debug.analyze@1'],
+};
+
 export const callerContext = {
   callerPluginId: 'test.caller',
   grantedPermissions: ['ai.text.generate', 'ai.structured.generate'],

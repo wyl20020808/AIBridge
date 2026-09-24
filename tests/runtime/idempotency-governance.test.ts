@@ -9,6 +9,8 @@ import { describe, expect, it } from 'vitest';
 
 import {
   callerContext,
+  codeDebugCallerContext,
+  codeDebugTurn,
   makeHarness,
   script,
   subjectContext,
@@ -50,6 +52,41 @@ describe('idempotency in execution (Phase 17–20, 51)', () => {
     expect(replay.provenance).toMatchObject({ promptApplied: true, promptVersion: 'consumer.prompt.v1' });
     const usage = await harness.ledger.requests(replay.provenance.logicalRequestId);
     expect(usage[0]).toMatchObject({ promptApplied: true, promptVersion: 'consumer.prompt.v1', idempotencyOutcome: 'REPLAYED' });
+    expect(harness.providers['relay']?.callCount).toBe(1);
+  });
+
+  it('replays debug provenance under logical identity while dispatching the structured primitive once', async () => {
+    const output = {
+      issueCategories: ['SYNTAX'],
+      diagnosticContextRefs: ['sourceCode:1'],
+      limitations: [],
+    };
+    const harness = makeHarness({
+      providers: [{ id: 'relay', behavior: script({ kind: 'structured', text: JSON.stringify(output) }) }],
+    });
+
+    const first = await harness.runtime.executeObserved(
+      codeDebugTurn(32, { promptVersion: 'consumer.debug.v1' }),
+      codeDebugCallerContext,
+    );
+    const replay = await harness.runtime.executeObserved(
+      codeDebugTurn(32, { requestId: 'req-33', promptVersion: 'consumer.debug.v2' }),
+      codeDebugCallerContext,
+    );
+
+    expect(first.result.status).toBe('SUCCEEDED');
+    expect(first.result.capability).toBe('code.debug.analyze');
+    expect(replay.result.capability).toBe('code.debug.analyze');
+    expect(replay.result.warnings.map((warning) => warning.code)).toContain('IDEMPOTENT_REPLAY');
+    expect(replay.provenance).toMatchObject({ promptApplied: true, promptVersion: 'consumer.debug.v1' });
+    const usage = await harness.ledger.requests(replay.provenance.logicalRequestId);
+    expect(usage[0]).toMatchObject({
+      capability: 'code.debug.analyze',
+      promptApplied: true,
+      promptVersion: 'consumer.debug.v1',
+      idempotencyOutcome: 'REPLAYED',
+    });
+    expect(harness.providers['relay']?.requests[0]?.capability).toBe('ai.structured.generate');
     expect(harness.providers['relay']?.callCount).toBe(1);
   });
 

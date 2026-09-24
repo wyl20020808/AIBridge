@@ -100,10 +100,12 @@ import {
   normalizeProviderError,
   normalizeThrown,
   providerTimeoutError,
+  validationFailureToAiError,
 } from './errors.js';
 import { killSwitchError } from '@aibridge/core';
 import { nextFallback } from './fallback.js';
 import type { RuntimeConfigSnapshot } from './config-manager.js';
+import { validateCodeDebugOutput } from './code-debug.js';
 import {
   repairExhaustedError,
   structuredOutputOutcome,
@@ -129,6 +131,8 @@ export type ExecutionPlan = {
   readonly idempotencyKey: string;
   readonly capability: string;
   readonly capabilityVersion: string;
+  /** Physical primitive used for provider dispatch; capability remains logical identity. */
+  readonly requiredPrimitive: string;
   readonly profile: ModelProfile;
   readonly callerPluginId: string;
   readonly subjectToken?: string;
@@ -1007,9 +1011,29 @@ export class ExecutionCoordinator {
   }
 
   #shapeOutput(plan: ExecutionPlan, value: ProviderTextResult | ProviderStructuredResult): ShapedOutput {
-    return plan.capability === 'ai.structured.generate'
-      ? structuredOutputOutcome(value.text, plan.outputSchema, plan.maxOutputBytes)
-      : textOutputOutcome(value.text, plan.maxOutputBytes);
+    if (plan.requiredPrimitive !== 'ai.structured.generate') {
+      return textOutputOutcome(value.text, plan.maxOutputBytes);
+    }
+
+    const shaped = structuredOutputOutcome(value.text, plan.outputSchema, plan.maxOutputBytes);
+    if (!shaped.ok || plan.capability !== 'code.debug.analyze') {
+      return shaped;
+    }
+
+    const validated = validateCodeDebugOutput(shaped.value, {
+      instructions: plan.instructions,
+      context: plan.context,
+    });
+    if (validated.ok) {
+      return { ok: true, value: validated.value };
+    }
+    return {
+      ok: false,
+      error: validationFailureToAiError(validated.failure, 'The generated answer did not conform to this capability.'),
+      issues: validated.failure.issues,
+      rawText: value.text,
+      repairable: validated.failure.reason === 'SCHEMA_VALIDATION_FAILED',
+    };
   }
 
   /**
@@ -1348,7 +1372,7 @@ export class ExecutionCoordinator {
     const request = this.#providerRequest(plan, target, providerDeadlineAtMs, cancellation, repair);
     let work: Promise<ProviderTextResult | ProviderStructuredResult>;
     try {
-      work = plan.capability === 'ai.structured.generate' ? target.route.adapter.generateStructured(request) : target.route.adapter.generateText(request);
+      work = plan.requiredPrimitive === 'ai.structured.generate' ? target.route.adapter.generateStructured(request) : target.route.adapter.generateText(request);
     } catch (error: unknown) {
       return { kind: 'threw', error };
     }
@@ -1418,7 +1442,7 @@ export function buildProviderRequest(
     target.route.model.maxOutputTokens,
   );
   return {
-    capability: plan.capability,
+    capability: plan.requiredPrimitive,
     profile: plan.profile,
     instructions: plan.instructions,
     context,
