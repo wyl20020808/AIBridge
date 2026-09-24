@@ -314,6 +314,25 @@ Metrics labels may carry `capability`, `capabilityVersion`, `providerId`, `model
 text, or `modelRef`. A label cardinality explosion is a mild incident; a label carrying a
 learner's sentence is a serious one.
 
+### 6.5 Qualification records (Stage 8)
+
+The provider live-qualification model (`@aibridge/qualification`) produces durable records that an
+operator may keep, diff and copy between checkouts. Their safety is **structural**, not a filter:
+
+- An endpoint is projected to `{ scheme, host, port? }` — path, query string, userinfo and fragment
+  are dropped, so a credential embedded in a URL can never be recorded.
+- The provider model id is recorded as a derived safe ref, never echoed verbatim.
+- The record has **no field** for prompt text, a full AI response, reasoning content, an API key, an
+  Authorization header or learner data. `validateQualificationRecord()` re-asserts this so a
+  regression that widens the shape is caught.
+- `safeFailureReason` is a closed classification, and `notes` is a closed set of codes — a provider's
+  raw error prose (which may echo a credential, PII or a stack trace) has nowhere to land.
+- CLI output and `getQualificationStatus()` expose provider id, model alias, feature, status, latency,
+  a usage summary and a coarse failure class only.
+
+These are asserted by `tests/qualification/security.test.ts` (a deliberately poisoned provider error
+body) and the qualification property/fuzz suites ([`TESTING.md`](TESTING.md) §1.3).
+
 ---
 
 ## 7. Output safety — structural vs business

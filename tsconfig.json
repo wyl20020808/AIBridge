@@ -6,6 +6,7 @@
     { "path": "packages/host-sdk" },
     { "path": "packages/governance" },
     { "path": "packages/runtime" },
+    { "path": "packages/qualification" },
     { "path": "packages/provider-openai-compatible" },
     { "path": "packages/provider-openai" },
     { "path": "packages/provider-deepseek" },

@@ -28,6 +28,7 @@ const PACKAGE_DIRS = [
   'host-sdk',
   'governance',
   'runtime',
+  'qualification',
   'provider-openai-compatible',
   'provider-openai',
   'provider-deepseek',
