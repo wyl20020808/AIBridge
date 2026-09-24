@@ -123,10 +123,21 @@ Full rationale: [`ARCHITECTURE.md`](ARCHITECTURE.md). Capability semantics:
 >    behavioral consequence, deliberate: unlike other `PROVIDER_PERMANENT` failures, this reason
 >    is **fallback-eligible** (stop rule `PROVIDER_BALANCE`) — one wallet's emptiness is not the
 >    next provider's, and a configured fallback chain is the operator's statement of willingness.
->    Version bump: `AIBRIDGE_ERROR_VERSION` `1.1` → `1.2` (§2).
+> 2. **Prompt provenance, as optional request fields** (§3.1): `promptApplied?: boolean` and
+>    `promptVersion?: string` — the caller's opaque labels for the authored business prompt that
+>    composed `instructions`. This closes the gap recorded in Stages 4 and 5: the bridge never
+>    generates business prompts and never reads prompt content, so provenance can only ever be a
+>    pass-through. Both fields are optional and ride into the logical-request usage record (never
+>    into an attempt's content — there is no content there either). The request digest is
+>    deliberately unchanged: `instructions` already lives inside `input`, and a label is not
+>    request identity.
 >
-> Fixture impact: one new **ILLUSTRATIVE** fixture
-> (`ai.text.generate.response.balance-exhausted.json`); every `FROZEN` fixture parses unchanged.
+> Version bumps (§2): `AIBRIDGE_ERROR_VERSION` `1.1` → `1.2` for item 1,
+> `AIBRIDGE_REQUEST_SCHEMA_VERSION` / `GENERIC_REQUEST_SCHEMA_VERSION` `1.0` → `1.1` for item 2.
+>
+> Fixture impact: two new **ILLUSTRATIVE** fixtures
+> (`ai.text.generate.response.balance-exhausted.json`,
+> `ai.text.generate.request.prompt-provenance.json`); every `FROZEN` fixture parses unchanged.
 
 ---
 
@@ -184,16 +195,16 @@ Full rationale: [`ARCHITECTURE.md`](ARCHITECTURE.md). Capability semantics:
 
 ```ts
 export const AIBRIDGE_CONTRACT_VERSION        = '1.1';  // envelopes + error vocabulary
-export const AIBRIDGE_REQUEST_SCHEMA_VERSION  = '1.0';  // AiRequestEnvelope
+export const AIBRIDGE_REQUEST_SCHEMA_VERSION  = '1.1';  // AiRequestEnvelope
 export const AIBRIDGE_RESPONSE_SCHEMA_VERSION = '1.1';  // AiResult
 export const AIBRIDGE_ERROR_VERSION           = '1.2';  // AiErrorCode + AiErrorReason
 export const AIBRIDGE_FIELD_DIALECT           = 'aibridge.fields/v1';
 export const AIBRIDGE_PLUGIN_API_VERSION      = 1;
 ```
 
-`1.1` on the envelopes is the additive Stage 5 bump (see the compatibility note above);
-`AIBRIDGE_ERROR_VERSION` is `1.2` for the additive Stage 6 reason below. Comparison stays
-major-compatible, so a `1.0` consumer is still accepted.
+`1.1` on the envelopes is the additive Stage 5 bump (see the compatibility note above) plus the
+Stage 6 request-side additions; `AIBRIDGE_ERROR_VERSION` is `1.2` for the additive Stage 6
+reason. Comparison stays major-compatible, so a `1.0` consumer is still accepted.
 
 ### 2.1 Compatibility rule (frozen)
 

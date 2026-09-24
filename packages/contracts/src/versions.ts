@@ -19,8 +19,8 @@ export const PLUGIN_API_VERSION = 1 as const;
 /** Request envelope, response envelope and error vocabulary. */
 export const AIBRIDGE_CONTRACT_VERSION = '1.1' as const;
 
-/** The `AiRequestEnvelope` / consumer request field set. */
-export const GENERIC_REQUEST_SCHEMA_VERSION = '1.0' as const;
+/** The `AiRequestEnvelope` / consumer request field set. `1.1` — additive Stage 6 provenance fields. */
+export const GENERIC_REQUEST_SCHEMA_VERSION = '1.1' as const;
 
 /** The `AiResult` response envelope field set. */
 export const AIBRIDGE_RESPONSE_SCHEMA_VERSION = '1.1' as const;

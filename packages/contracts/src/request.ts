@@ -34,7 +34,12 @@ export const CONSUMER_AI_REQUEST_KEYS = [
   'policyId',
   'timeoutBudget',
   'metadata',
+  'promptApplied',
+  'promptVersion',
 ] as const;
+
+/** Opaque caller-side prompt provenance version: `^[A-Za-z0-9._-]{1,64}$`. Never prompt content. */
+export const PROMPT_VERSION_PATTERN = /^[A-Za-z0-9._-]{1,64}$/;
 
 /**
  * Fields a consumer must never be able to set. Their presence is a hard rejection, not a drop:
@@ -96,6 +101,14 @@ export type ConsumerAiRequest<TInput = unknown> = {
   readonly policyId?: string;
   readonly timeoutBudget?: TimeoutBudget;
   readonly metadata?: RequestMetadata;
+  /**
+   * Prompt provenance (Stage 6, additive): did the caller compose `instructions` with an
+   * authored business prompt? Opaque pass-through — the bridge never generates business prompts
+   * and never reads prompt content.
+   */
+  readonly promptApplied?: boolean;
+  /** The caller's opaque prompt version identifier. Never prompt content. */
+  readonly promptVersion?: string;
 };
 
 export type ParseConsumerAiRequestOptions = {
@@ -242,6 +255,15 @@ export function parseConsumerAiRequest<TInput = unknown>(
     }
   }
 
+  const promptApplied = value['promptApplied'];
+  if (promptApplied !== undefined && typeof promptApplied !== 'boolean') {
+    issues.push(createIssue('INVALID_TYPE', at(path, 'promptApplied'), 'must be a boolean'));
+  }
+  const promptVersion = value['promptVersion'];
+  if (promptVersion !== undefined && (typeof promptVersion !== 'string' || !PROMPT_VERSION_PATTERN.test(promptVersion))) {
+    issues.push(createIssue('PATTERN_MISMATCH', at(path, 'promptVersion'), 'must match ^[A-Za-z0-9._-]{1,64}$'));
+  }
+
   if (issues.length > 0) {
     return invalid(reason, issues);
   }
@@ -258,6 +280,8 @@ export function parseConsumerAiRequest<TInput = unknown>(
     ...(policyId === undefined ? {} : { policyId }),
     ...(timeoutBudget === undefined ? {} : { timeoutBudget }),
     ...(metadata === undefined ? {} : { metadata }),
+    ...(promptApplied === undefined ? {} : { promptApplied: promptApplied as boolean }),
+    ...(promptVersion === undefined ? {} : { promptVersion: promptVersion as string }),
   });
 }
 

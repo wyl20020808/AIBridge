@@ -99,6 +99,9 @@ export type LogicalRequestUsageRecord = {
   readonly totalUsageComplete: boolean;
   readonly totalCost: CostEstimate;
   readonly idempotencyOutcome: 'EXECUTED' | 'REPLAYED' | 'JOINED';
+  /** Prompt provenance (Stage 6, additive): opaque caller-side labels. Never prompt content. */
+  readonly promptApplied?: boolean;
+  readonly promptVersion?: string;
 };
 
 /** Durable-enough, append-only usage storage. The host owns persistence; AI Bridge owns the shape. */

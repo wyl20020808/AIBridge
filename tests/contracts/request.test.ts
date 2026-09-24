@@ -30,6 +30,20 @@ describe('consumer request — the untrusted half', () => {
     expect(request.metadata).toEqual({ locale: 'zh-CN', surface: 'idea-lab' });
   });
 
+  it('accepts the optional prompt provenance labels and rejects malformed ones (Stage 6)', () => {
+    // Opaque pass-through: the bridge never generates business prompts and never reads content.
+    const withProvenance = unwrap(
+      parseConsumerAiRequest({ ...validRequest(), promptApplied: true, promptVersion: 'encouragement.v3' }),
+    );
+    expect(withProvenance.promptApplied).toBe(true);
+    expect(withProvenance.promptVersion).toBe('encouragement.v3');
+    // Absent is fully valid.
+    expect(unwrap(parseConsumerAiRequest(validRequest())).promptApplied).toBeUndefined();
+    // Malformed: a non-boolean flag, and a version carrying prompt-looking content.
+    expect(parseConsumerAiRequest({ ...validRequest(), promptApplied: 'yes' }).ok).toBe(false);
+    expect(parseConsumerAiRequest({ ...validRequest(), promptVersion: 'bad version with spaces' }).ok).toBe(false);
+  });
+
   it('rejects every trusted-only field before reading any other field', () => {
     for (const field of TRUSTED_ONLY_FIELDS) {
       const failure = unwrapFailure(parseConsumerAiRequest({ ...validRequest(), [field]: 'forged' }));

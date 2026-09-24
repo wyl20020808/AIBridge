@@ -781,6 +781,8 @@ export class AiRuntime {
       deadlineAtMs: plan.deadlineAtMs,
       warnings: plan.warnings,
       snapshot: plan.snapshot,
+      ...(plan.composed.promptApplied === undefined ? {} : { promptApplied: plan.composed.promptApplied }),
+      ...(plan.composed.promptVersion === undefined ? {} : { promptVersion: plan.composed.promptVersion }),
     };
   }
 

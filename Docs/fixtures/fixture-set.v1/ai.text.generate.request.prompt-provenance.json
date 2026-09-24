@@ -1,0 +1,35 @@
+{
+  "fixtureSetVersion": "1.0",
+  "binding": "ILLUSTRATIVE",
+  "kind": "request",
+  "expect": "accept",
+  "capability": "ai.text.generate",
+  "capabilityVersion": "1.0",
+  "case": "prompt-provenance-opaque-pass-through-labels",
+  "note": "Stage 6 additive optional fields. promptApplied / promptVersion are the caller's opaque labels for the authored business prompt that composed `instructions`. The bridge never generates business prompts and never reads prompt content: these are provenance identifiers, safe for the usage ledger. A consumer that omits both fields is fully valid.",
+  "document": {
+    "contractVersion": "1.1",
+    "requestId": "req-01J8Z0KQ7V00000000000031",
+    "idempotencyKey": "learner-turn-01J8Z0KQ7V00000000000030",
+    "callerPluginId": "algoquest.learning-quests",
+    "capability": "ai.text.generate",
+    "capabilityVersion": "1.0",
+    "profile": "balanced",
+    "subjectToken": "subtok_opaque_host_minted_not_a_session_token",
+    "input": {
+      "instructions": "Reply with one encouraging sentence about the learner's chosen topic.",
+      "context": [
+        {
+          "name": "topic",
+          "label": "Learner's topic",
+          "type": "STRING",
+          "untrusted": true,
+          "value": "recursion",
+          "maxLength": 200
+        }
+      ]
+    },
+    "promptApplied": true,
+    "promptVersion": "encouragement.v3"
+  }
+}

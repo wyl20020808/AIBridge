@@ -149,6 +149,9 @@ export type ExecutionPlan = {
   readonly warnings: readonly AiWarning[];
   /** The one config snapshot this request runs against (Phase 40–42). */
   readonly snapshot: RuntimeConfigSnapshot;
+  /** Prompt provenance labels (Stage 6, additive): opaque pass-through, never content. */
+  readonly promptApplied?: boolean;
+  readonly promptVersion?: string;
 };
 
 export type ExecutionOutcome = {
@@ -1318,6 +1321,8 @@ export class ExecutionCoordinator {
       totalUsageComplete: summary.totalUsageComplete,
       totalCost: summary.totalCost,
       idempotencyOutcome,
+      ...(plan.promptApplied === undefined ? {} : { promptApplied: plan.promptApplied }),
+      ...(plan.promptVersion === undefined ? {} : { promptVersion: plan.promptVersion }),
     };
   }
 
