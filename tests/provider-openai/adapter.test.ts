@@ -323,8 +323,9 @@ describe('error and refusal normalization', () => {
     } catch (error) {
       caught = error as { message?: string; rawError?: { reason?: string; retryAfterMs?: number } };
     }
-    // insufficient_quota is a deployment problem an operator repairs — not a transient throttle.
-    expect(caught?.rawError?.reason).toBe('PROVIDER_AUTH_FAILED');
+    // insufficient_quota is a deployment problem an operator repairs — an empty wallet,
+    // never a broken credential (Stage 6: PROVIDER_BALANCE_EXHAUSTED).
+    expect(caught?.rawError?.reason).toBe('PROVIDER_BALANCE_EXHAUSTED');
   });
 
   it('treats a refusal as a signal, not an error', async () => {

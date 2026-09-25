@@ -1,5 +1,10 @@
 # AI Bridge — Project Status
 
+> **AIBridge V1: STABILIZED.** Feature development: **FROZEN** (see §V1 stabilization audit).
+> Authoritative current-system document: [`TECHNICAL_OVERVIEW_V1.md`](TECHNICAL_OVERVIEW_V1.md).
+> Residual risks: [`V1_RISK_REGISTER.md`](V1_RISK_REGISTER.md). Audit evidence:
+> [`reports/V1_SECURITY_AND_STABILITY_AUDIT.md`](reports/V1_SECURITY_AND_STABILITY_AUDIT.md).
+
 Authoritative technical documents: [`ARCHITECTURE.md`](ARCHITECTURE.md),
 [`CAPABILITIES.md`](CAPABILITIES.md), [`CONTRACTS.md`](CONTRACTS.md),
 [`INTEGRATION_CONTRACT_V1.md`](INTEGRATION_CONTRACT_V1.md), [`SECURITY.md`](SECURITY.md).
@@ -40,6 +45,19 @@ routing, and never runs at startup. This separately commissioned scope does not 
 legacy Stage 7 usage/cost durability or Stage 8 specialized-pack programme rows. See
 [`PROVIDER_QUALIFICATION.md`](PROVIDER_QUALIFICATION.md) and
 [`reports/STAGE_8_PROVIDER_LIVE_QUALIFICATION_REPORT.md`](reports/STAGE_8_PROVIDER_LIVE_QUALIFICATION_REPORT.md).
+
+## V1 stabilization audit
+
+**STABILIZED** — a full technical overview, stability audit and bug hunt over architecture,
+contracts, providers, governance, trust/secret boundaries, streaming, retry/fallback,
+idempotency, config reload, shutdown, host entry, suite factory, qualification, SSRF, resource
+bounds, observability, portability and docs. 29 evidence-backed defects fixed (1 P0, 3 P1,
+25 P2), 56 regression/mutant/chaos tests added, no breaking contract change, `npm run verify`
+green (685 tests). Feature development is **FROZEN**; reopen only for a real consumer
+requirement, a production defect, a security issue, performance/reliability evidence, or an
+integration-contract requirement. See [`TECHNICAL_OVERVIEW_V1.md`](TECHNICAL_OVERVIEW_V1.md),
+[`V1_RISK_REGISTER.md`](V1_RISK_REGISTER.md) and
+[`reports/V1_SECURITY_AND_STABILITY_AUDIT.md`](reports/V1_SECURITY_AND_STABILITY_AUDIT.md).
 
 ## What exists today
 

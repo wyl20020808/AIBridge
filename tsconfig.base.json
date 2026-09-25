@@ -22,8 +22,10 @@
     "skipLibCheck": true,
 
     "declaration": true,
-    "declarationMap": true,
-    "sourceMap": true,
+    // No source or declaration maps: packed tarballs must not ship files that embed local
+    // build paths (V1 stabilization audit, pack-content gate in scripts/check-portability.mjs).
+    "declarationMap": false,
+    "sourceMap": false,
     "composite": true,
     "incremental": true
   }

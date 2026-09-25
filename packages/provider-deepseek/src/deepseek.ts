@@ -233,7 +233,10 @@ export class DeepSeekAdapter implements AiProviderAdapter {
           usage = { ...usage, ...mapUsage(parsed.usage) };
           const outcome = consumeChatChunk(parsed, mapFinishReason);
           if (outcome.kind === 'DELTA') {
-            yield { kind: 'TEXT_DELTA', text: outcome.text };
+            // Late deltas after FINISH are discarded: the stream is logically closed.
+            if (!finished) {
+              yield { kind: 'TEXT_DELTA', text: outcome.text };
+            }
           } else if (outcome.kind === 'FINISH') {
             finishReason = outcome.finishReason;
             finished = true;

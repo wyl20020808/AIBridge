@@ -68,6 +68,7 @@ export const SUITE_ADAPTER_FACTORIES: AdapterFactories = {
       id: spec.providerId,
       baseUrl: spec.baseUrl,
       models: modelConfigs(spec),
+      authScheme: spec.authScheme,
       allowPrivateNetworkForDevelopment: spec.allowPrivateNetworkForDevelopment,
     }),
   XIAOMI_TOKENPLAN: (spec) =>
@@ -75,6 +76,7 @@ export const SUITE_ADAPTER_FACTORIES: AdapterFactories = {
       id: spec.providerId,
       baseUrl: spec.baseUrl,
       models: modelConfigs(spec),
+      authScheme: spec.authScheme,
       allowPrivateNetworkForDevelopment: spec.allowPrivateNetworkForDevelopment,
     }),
   OPENAI_COMPATIBLE_CUSTOM: (spec) =>

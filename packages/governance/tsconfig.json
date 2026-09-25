@@ -3,7 +3,7 @@
   "compilerOptions": {
     "rootDir": "src",
     "outDir": "dist",
-    "tsBuildInfoFile": "dist/.tsbuildinfo",
+    "tsBuildInfoFile": "../../tmp/tsbuildinfo/governance.tsbuildinfo",
     "types": ["node"]
   },
   "references": [{ "path": "../contracts" }, { "path": "../host-sdk" }],

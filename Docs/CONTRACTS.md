@@ -55,19 +55,19 @@ Single source for every frozen version constant:
 
 ```ts
 PLUGIN_API_VERSION            = 1
-AIBRIDGE_CONTRACT_VERSION     = '1.1'
-GENERIC_REQUEST_SCHEMA_VERSION = '1.0'
+AIBRIDGE_CONTRACT_VERSION     = '1.2'
+GENERIC_REQUEST_SCHEMA_VERSION = '1.2'
 AIBRIDGE_RESPONSE_SCHEMA_VERSION = '1.1'
-AIBRIDGE_ERROR_VERSION        = '1.1'
+AIBRIDGE_ERROR_VERSION        = '1.2'
 STRUCTURED_OUTPUT_SCHEMA_VERSION = '1.0'
 STRUCTURED_OUTPUT_SCHEMA_MAJOR = 1
 PROVIDER_ADAPTER_API_VERSION  = 1        // internal, not a public contract
-CAPABILITY_DESCRIPTOR_VERSION = '1.0'
+CAPABILITY_DESCRIPTOR_VERSION = '1.1'
 FIXTURE_SET_VERSION           = '1.0'
 AIBRIDGE_FIELD_DIALECT        = 'aibridge.fields/v1'
 ```
 
-The three `1.1` values are the additive Stage 5 bump (compatibility note in
+The `1.2` values are the additive Stage 7 bump (compatibility note in
 [`INTEGRATION_CONTRACT_V1.md`](INTEGRATION_CONTRACT_V1.md)); comparison stays major-compatible.
 
 `parseMajor(version)` and `checkMajorCompatibility(actual, expected)` implement the frozen rule:

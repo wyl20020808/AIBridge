@@ -17,6 +17,7 @@
 import type { AiErrorCode, AiErrorReason, AiUsage, ModelClass, ModelProfile } from '@aibridge/contracts';
 import type { AttemptKind, AttemptSkipReason, AttemptStatus } from './usage-ledger.js';
 import type { CostEstimate } from './cost.js';
+import { aggregateUsage } from './cost.js';
 
 export type ProviderAttemptProvenance = {
   readonly attemptId: string;
@@ -95,26 +96,10 @@ export function summarize(provenance: ReliabilityProvenance): GovernanceSummary 
   const entries = provenance.attempts
     .filter((attempt) => attempt.status !== 'SKIPPED')
     .map((attempt) => ({ usage: attempt.usage ?? {}, known: attempt.usageKnown }));
-  let input = 0;
-  let output = 0;
-  let total = 0;
-  let cached = 0;
-  let reasoning = 0;
-  let seenAny = false;
-  let complete = entries.length > 0;
-  for (const entry of entries) {
-    if (!entry.known) {
-      complete = false;
-    }
-    const usage = entry.usage;
-    if (usage.inputTokens !== undefined) input += usage.inputTokens;
-    if (usage.outputTokens !== undefined) output += usage.outputTokens;
-    if (usage.totalTokens !== undefined) total += usage.totalTokens;
-    if (usage.cachedTokens !== undefined) cached += usage.cachedTokens;
-    if (usage.reasoningTokens !== undefined) reasoning += usage.reasoningTokens;
-    seenAny = seenAny || Object.keys(usage).length > 0;
-  }
   const last = [...provenance.attempts].reverse().find((attempt) => attempt.status !== 'SKIPPED');
+  // Total usage shares one home with quota settlement (`aggregateUsage`): a real zero-token
+  // report is a seen fact, never absent-as-unknown (Phase 26/58).
+  const aggregate = aggregateUsage(entries);
   const totalCost = mergeCosts(provenance.attempts.map((attempt) => attempt.estimatedCost));
   return {
     logicalRequestId: provenance.logicalRequestId,
@@ -123,16 +108,8 @@ export function summarize(provenance: ReliabilityProvenance): GovernanceSummary 
     retryCount: provenance.retryCount,
     repairCount: provenance.repairCount,
     skippedCount: provenance.skippedCount,
-    totalUsage: seenAny
-      ? {
-          ...(input > 0 ? { inputTokens: input } : {}),
-          ...(output > 0 ? { outputTokens: output } : {}),
-          ...(total > 0 ? { totalTokens: total } : {}),
-          ...(cached > 0 ? { cachedTokens: cached } : {}),
-          ...(reasoning > 0 ? { reasoningTokens: reasoning } : {}),
-        }
-      : {},
-    totalUsageComplete: complete,
+    totalUsage: aggregate.usage,
+    totalUsageComplete: aggregate.complete,
     totalCost,
     finalUsage: last?.usage ?? {},
   };
@@ -153,11 +130,16 @@ export function mergeCosts(costs: readonly (CostEstimate | undefined)[]): CostEs
   }
   const currency = amounts[0]?.currency;
   const mixedCurrency = amounts.some((cost) => cost.currency !== currency);
+  if (mixedCurrency) {
+    // Amounts in different currencies cannot be summed honestly: report unknown (partial),
+    // never a meaningless cross-currency total (Phase 33).
+    return { basis: 'UNKNOWN', partial: true };
+  }
   const sum = amounts.reduce((total, cost) => total + (cost.amount ?? 0), 0);
-  const partial = amounts.length < present.length || present.some((cost) => cost.partial === true) || mixedCurrency;
+  const partial = amounts.length < present.length || present.some((cost) => cost.partial === true);
   return {
     amount: sum,
-    ...(mixedCurrency || currency === undefined ? {} : { currency }),
+    ...(currency === undefined ? {} : { currency }),
     basis: amounts.every((cost) => cost.basis === 'PROVIDER_REPORTED') ? 'PROVIDER_REPORTED' : 'ESTIMATED_FROM_PRICING',
     ...(partial ? { partial: true } : {}),
   };

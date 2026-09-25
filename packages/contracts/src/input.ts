@@ -81,6 +81,17 @@ export function parseContextValue(value: unknown, path = '$'): ValidationResult<
   if (maxLength !== undefined && (!Number.isInteger(maxLength) || !isNonNegativeFiniteNumber(maxLength) || maxLength < 1)) {
     issues.push(createIssue('INVALID_TYPE', at(path, 'maxLength'), 'must be a positive integer'));
   }
+  // A caller-declared per-value bound is a contract: values longer than `maxLength` are
+  // rejected, never silently truncated (truncation would change meaning without consent).
+  if (
+    typeof contextValue === 'string' &&
+    typeof maxLength === 'number' &&
+    Number.isInteger(maxLength) &&
+    maxLength >= 1 &&
+    contextValue.length > maxLength
+  ) {
+    issues.push(createIssue('OUT_OF_RANGE', at(path, 'value'), `must be at most ${maxLength} characters`));
+  }
   if (issues.length > 0) {
     return invalid('MALFORMED_ENVELOPE', issues);
   }

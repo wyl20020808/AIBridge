@@ -306,6 +306,7 @@ Classification reads only `code` / `reason` / `stage` — never provider prose.
 | `TIMEOUT` / `PROVIDER_TIMEOUT` | per policy — unknown outcome only with `supportsReliableIdempotency` | **yes**; unknown outcome only per `crossProviderFallbackOnUnknownOutcome` (default true) | **yes** | attempt settles (unknown ⇒ conservative) | `attempt + request` |
 | `INVALID_RESPONSE` / `PROVIDER_BAD_RESPONSE` | never | never | no | attempt settles | `attempt + request` |
 | `PROVIDER_ERROR` / `PROVIDER_AUTH_FAILED` | never | never — deployment problem | no | attempt settles | `attempt + request` |
+| `PROVIDER_ERROR` / `PROVIDER_BALANCE_EXHAUSTED` | never | **yes — the one deliberate chase**: permanent for one wallet, chased to the next provider, then terminal (`fallback.ts` balance chase) | no | attempt settles (reported usage; unknown ⇒ conservative) | `attempt + request` |
 | `INVALID_REQUEST` / `PROVIDER_REQUEST_REJECTED` | never | never | no | attempt settles (a dispatch happened, unlike ingress rejections) | `attempt + request` |
 | `CONTENT_BLOCKED` / `PROVIDER_CONTENT_FILTER` | never | never | no | attempt settles | `attempt + request` |
 | `CONTENT_BLOCKED` / `POLICY_VIOLATION` (e.g. `maxCallsPerTurn`) | never | never | no | the refused call opens nothing; calls already made settle | `attempt + request` |

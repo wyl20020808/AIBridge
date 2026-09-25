@@ -62,7 +62,13 @@ Trust boundary (non-negotiable):
 - `reload` — atomic configuration reload. A candidate that changes the provider **shape**
   rebuilds the runtime around the same host stores, so Redis/Postgres-backed governance state
   survives;
-- `diagnostics` — credential-free provider facts (ids, aliases, feature assurance, probe status);
+- `diagnostics` — credential-free provider facts (ids, aliases, feature assurance, probe status).
+  The `verifiedFeatures` shown here are an **operator assertion from configuration**, not a
+  store-backed qualification verdict: if the underlying provider/model tuple drifts, `diagnostics`
+  keeps saying `VERIFIED` while `getQualificationStatus()` reports `STALE`. Consumers that need
+  drift-aware assurance must consult the qualification store (see
+  [`PROVIDER_QUALIFICATION.md`](PROVIDER_QUALIFICATION.md) §7); qualification never drives routing
+  either way.
 - `configSnapshot` — the active `configVersion` / `contentDigest` for ledger provenance.
 
 ## 4. Kill switches

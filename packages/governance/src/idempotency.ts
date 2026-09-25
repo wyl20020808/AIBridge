@@ -206,6 +206,8 @@ export type IdempotencyGate =
 export type IdempotencyRegistryOptions = {
   readonly store: IdempotencyStorePort;
   readonly clock: Clock;
+  /** Claim expiry window for new turns. Defaults to `IDEMPOTENCY_RETENTION_MS`. */
+  readonly retentionMs?: number;
 };
 
 /**
@@ -218,15 +220,25 @@ export type IdempotencyRegistryOptions = {
 export class IdempotencyRegistry {
   readonly #store: IdempotencyStorePort;
   readonly #clock: Clock;
+  #retentionMs: number;
   readonly #inFlight = new Map<string, { readonly result: Promise<AiResult<unknown>>; resolve(value: AiResult<unknown>): void }>();
 
   constructor(options: IdempotencyRegistryOptions) {
     this.#store = options.store;
     this.#clock = options.clock;
+    this.#retentionMs = Math.max(1, options.retentionMs ?? IDEMPOTENCY_RETENTION_MS);
   }
 
   get store(): IdempotencyStorePort {
     return this.#store;
+  }
+
+  /**
+   * Retune the claim expiry window for future turns. Stored records keep their own
+   * `expiresAtMs`; the store's capacity is construction-time and never retuned here.
+   */
+  reconfigure(retentionMs?: number): void {
+    this.#retentionMs = Math.max(1, retentionMs ?? IDEMPOTENCY_RETENTION_MS);
   }
 
   /** The gate every logical call passes, before governance and before any dispatch (Phase 51). */
@@ -244,7 +256,7 @@ export class IdempotencyRegistry {
       fingerprint: hashedFingerprint,
       status: 'IN_FLIGHT',
       createdAtMs: nowMs,
-      expiresAtMs: nowMs + IDEMPOTENCY_RETENTION_MS,
+      expiresAtMs: nowMs + this.#retentionMs,
       logicalRequestId,
       ...(promptProvenance === undefined ? {} : { promptProvenance }),
     });
@@ -264,28 +276,24 @@ export class IdempotencyRegistry {
       }
       case 'JOIN': {
         const inFlight = this.#inFlight.get(key);
-        return inFlight === undefined
-          ? { kind: 'CONFLICT' }
-          : {
-              kind: 'JOIN',
-              result: inFlight.result,
-              ...(claim.record.promptProvenance === undefined ? {} : { promptProvenance: claim.record.promptProvenance }),
-            };
+        if (inFlight !== undefined) {
+          return {
+            kind: 'JOIN',
+            result: inFlight.result,
+            ...(claim.record.promptProvenance === undefined ? {} : { promptProvenance: claim.record.promptProvenance }),
+          };
+        }
+        // The store claims a turn is in flight but this process holds no leader promise
+        // (restart with a durable host store, or a leader that died before settling). Parking
+        // the caller on `IDEMPOTENCY_CONFLICT` until TTL would be a lie — the fingerprint
+        // matches, so this is not a conflict. Fall through and take the turn over as a fresh
+        // leader: settle overwrites the stale record via `complete`. Two post-restart racers
+        // can both take over; cross-process fencing is out of scope for the reference port.
+        break;
       }
       case 'PROCEED': {
-        let resolve!: (value: AiResult<unknown>) => void;
-        const result = new Promise<AiResult<unknown>>((r) => {
-          resolve = r;
-        });
-        this.#inFlight.set(key, { result, resolve });
-        return {
-          kind: 'PROCEED',
-          settle: async (final: AiResult<unknown>): Promise<void> => {
-            this.#inFlight.delete(key);
-            resolve(final);
-            await this.#store.complete(key, final.status === 'SUCCEEDED' ? 'SUCCEEDED' : 'FAILED_FINAL', final, this.#clock.nowMs());
-          },
-        };
+        // Fresh turn: this caller is the leader.
+        break;
       }
       default: {
         const exhaustive: never = claim;
@@ -293,5 +301,18 @@ export class IdempotencyRegistry {
         return { kind: 'CONFLICT' };
       }
     }
+    let resolve!: (value: AiResult<unknown>) => void;
+    const result = new Promise<AiResult<unknown>>((r) => {
+      resolve = r;
+    });
+    this.#inFlight.set(key, { result, resolve });
+    return {
+      kind: 'PROCEED',
+      settle: async (final: AiResult<unknown>): Promise<void> => {
+        this.#inFlight.delete(key);
+        resolve(final);
+        await this.#store.complete(key, final.status === 'SUCCEEDED' ? 'SUCCEEDED' : 'FAILED_FINAL', final, this.#clock.nowMs());
+      },
+    };
   }
 }

@@ -17,18 +17,29 @@ Consumer plugin
       └─ provider adapter C
 ```
 
-## Current status — Stage 5
+## Current status — V1 STABILIZED
 
-**Four real provider paths, one runtime, one generic result. No UI. No production change.**
+**Four real provider paths, one governed runtime, one generic result. No UI. No production
+change. Feature development FROZEN.**
 
 | | |
 | --- | --- |
 | Providers implemented | **4** — OpenAI Official (Responses), DeepSeek Official, Xiaomi MiMo Token Plan, Generic OpenAI-Compatible Relay |
 | Real provider connected | **TEST PATH ONLY** — opt-in live harness (relay row live-qualified) |
 | API key configured | **NEVER COMMITTED** — `credentialRef` handles through the trusted secret boundary |
-| Runtime code shipped | **YES** — nine dependency-free packages |
+| Runtime code shipped | **YES** — twelve portable packages |
+| Capabilities | `ai.text.generate`, `ai.structured.generate`, `code.debug.analyze@1.0` (frozen) |
 | UI | **NOT ALLOWED** |
 | Production runtime changed | **NO** |
+
+V1 passed a full stabilization audit: 29 defects fixed, 56 tests added, verify green
+(685 tests). Current-system authority is
+[`Docs/TECHNICAL_OVERVIEW_V1.md`](Docs/TECHNICAL_OVERVIEW_V1.md); residual risks in
+[`Docs/V1_RISK_REGISTER.md`](Docs/V1_RISK_REGISTER.md); evidence in
+[`Docs/reports/V1_SECURITY_AND_STABILITY_AUDIT.md`](Docs/reports/V1_SECURITY_AND_STABILITY_AUDIT.md).
+Intentionally **not** implemented: standalone gateway, chat capability, tool-calling,
+embeddings, vision, UI/admin console, prompt-management UI, adaptive cost routing, agent
+framework, marketplace, deployment redesign.
 
 Stage 1 produced architecture. Stage 2 produced the generic contracts. Stage 3 drove them through a
 real provider. Stage 4 built the **provider suite**: `@aibridge/provider-openai` (Responses API),
@@ -51,12 +62,15 @@ reload and observability. Consumers still never learn which vendor served a call
 | `@aibridge/contracts` | versions, envelopes, error model, strict parsers, capability/descriptor types, `aibridge.fields/v1`, stream events, prompt channels | **zero** |
 | `@aibridge/core` | input safety, structural output safety, capability registry + directory, kill switches, provider/model registries, endpoint (SSRF) safety | `@aibridge/contracts` |
 | `@aibridge/host-sdk` | host ports, in-memory + mutant fakes, scripted provider, host/provider conformance kits | `@aibridge/contracts`, `@aibridge/core` |
-| `@aibridge/runtime` | pipeline, multi-provider config (presets, aliases, routes), trusted secret resolution, fallback chain contract, safe diagnostics | `@aibridge/contracts`, `@aibridge/core`, `@aibridge/host-sdk` |
+| `@aibridge/runtime` | pipeline, multi-provider config (presets, aliases, routes), trusted secret resolution, fallback chain contract, safe diagnostics | `@aibridge/contracts`, `@aibridge/core`, `@aibridge/governance`, `@aibridge/host-sdk` |
 | `@aibridge/governance` | reliability + governance: fallback/retry policy, circuit breaker + health, idempotency, rate limit, quota, usage ledger + cost, budget, observability | `@aibridge/contracts`, `@aibridge/host-sdk` |
 | `@aibridge/provider-openai-compatible` | Generic Relay provider + the internal OpenAI-compatible wire layer | `@aibridge/contracts`, `@aibridge/core` |
 | `@aibridge/provider-openai` | OpenAI Official (Responses API) | `@aibridge/contracts`, `@aibridge/core` |
 | `@aibridge/provider-deepseek` | DeepSeek Official (thinking, reasoning isolation) | `@aibridge/contracts`, `@aibridge/core`, `@aibridge/provider-openai-compatible` |
 | `@aibridge/provider-xiaomi-tokenplan` | Xiaomi MiMo Token Plan (auth, clusters) | `@aibridge/contracts`, `@aibridge/core`, `@aibridge/provider-openai-compatible` |
+| `@aibridge/qualification` | Live-qualification model: status ladder, secret-free identity/records, staleness, runner, diagnostics (metadata only, never routes) | `@aibridge/contracts` |
+| `@aibridge/host` | OJPlatform host entry: manifest + `ServerPlugin` (create/reload/dispose/diagnostics) | `@aibridge/contracts`, `@aibridge/core`, `@aibridge/governance`, `@aibridge/host-sdk`, `@aibridge/runtime` |
+| `@aibridge/suite-all` | The single concrete-adapter seam: preset → adapter factory | `@aibridge/runtime` (types), provider packages |
 
 Verify locally with `npm run verify` (strict typecheck → lint → gates → tests → build →
 portability). Live qualification is opt-in and never in CI:
@@ -81,6 +95,9 @@ portability). Live qualification is opt-in and never in CI:
 | [`Docs/CONFIG_RELOAD.md`](Docs/CONFIG_RELOAD.md) | Config snapshots, atomic reload and rollback |
 | [`Docs/ROADMAP.md`](Docs/ROADMAP.md) | Stage 2–10 plan and the AlgoQuest parallel plan |
 | [`Docs/PROJECT_STATUS.md`](Docs/PROJECT_STATUS.md) | Stage ledger and exit-gate evidence |
+| [`Docs/TECHNICAL_OVERVIEW_V1.md`](Docs/TECHNICAL_OVERVIEW_V1.md) | **Current-system authority** (V1 stabilization audit) |
+| [`Docs/V1_RISK_REGISTER.md`](Docs/V1_RISK_REGISTER.md) | Prioritized residual risks after V1 stabilization |
+| [`Docs/reports/V1_SECURITY_AND_STABILITY_AUDIT.md`](Docs/reports/V1_SECURITY_AND_STABILITY_AUDIT.md) | Threat review, bug register, tests added |
 | [`Docs/fixtures/`](Docs/fixtures/) | Shared JSON contract fixtures, no cross-repo code import |
 
 ## Rules this repository lives by

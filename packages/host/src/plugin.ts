@@ -18,6 +18,7 @@
  * subject tokens, secret storage, persistence, and lifecycle.
  */
 import {
+  AIBRIDGE_CONTRACT_VERSION,
   createIssue,
   makeAiError,
   type AiBridgeStatus,
@@ -127,7 +128,7 @@ export type AiBridgeServerPlugin = {
 };
 
 const unavailableResult = (message: string): AiResult<unknown> => ({
-  contractVersion: '1.1',
+  contractVersion: AIBRIDGE_CONTRACT_VERSION,
   requestId: 'unknown',
   capability: 'unknown',
   capabilityVersion: 'unknown',
@@ -266,7 +267,7 @@ class ServerPlugin implements AiBridgeServerPlugin {
     return status.ok
       ? status.value
       : {
-          contractVersion: '1.1',
+          contractVersion: AIBRIDGE_CONTRACT_VERSION,
           global: this.#disposed ? 'UNAVAILABLE' : 'AVAILABLE',
           killSwitch: {
             global: this.#killSwitches.state.global,
@@ -296,9 +297,13 @@ class ServerPlugin implements AiBridgeServerPlugin {
     }
     this.#applyKillSwitch();
     if (providerShapeKey(reloaded.value) !== this.#shapeKey) {
-      // Provider set changed: rebuild around the same host stores and configuration manager, so
-      // Redis/Postgres-backed governance state survives the swap.
-      const rebuilt = pluginRuntime(this.#options, this.#configManager, this.#killSwitches, this.#capabilities);
+      // Provider set changed: rebuild around the previous runtime's live governance services,
+      // so quota/rate/idempotency counters survive the swap (F17). Host-provided stores stay
+      // referenced through those same registry objects; only a first bootstrap builds fresh
+      // in-memory state. Registration touches no governance, so a failed rebuild below leaves
+      // the live registries untouched.
+      const previousRuntime = this.#runtime;
+      const rebuilt = pluginRuntime(this.#options, this.#configManager, this.#killSwitches, this.#capabilities, previousRuntime);
       const failure = await this.#registerProvidersOn(rebuilt, reloaded.value.input.suite.providers);
       if (failure !== null) {
         // The new snapshot is active but unusable: roll back so "active" and "servable" agree.
@@ -308,7 +313,14 @@ class ServerPlugin implements AiBridgeServerPlugin {
       }
       this.#runtime = rebuilt;
       this.#shapeKey = providerShapeKey(reloaded.value);
+      // The superseded runtime's adapters are released. In-flight calls already captured
+      // their adapter references and run to their own terminal; governance registries are
+      // shared with the rebuilt runtime and are untouched by `dispose`.
+      void previousRuntime.dispose();
     }
+    // Tuning-only changes (breaker thresholds, idempotency window) take effect on the live
+    // runtime without dropping observed breaker state; a rebuilt runtime already matches.
+    this.#runtime.syncGovernanceTuning();
     return reloaded;
   }
 
@@ -340,7 +352,14 @@ class ServerPlugin implements AiBridgeServerPlugin {
   }
 
   dispose(): void {
+    if (this.#disposed) {
+      return;
+    }
     this.#disposed = true;
+    // Shut adapters down in the background: `AiRuntime.dispose` never rejects (adapter
+    // shutdown failures are swallowed), so fire-and-forget is safe and keeps this
+    // long-standing sync lifecycle signature. New calls already fail closed above.
+    void this.#runtime.dispose();
   }
 
   #applyKillSwitch(): void {
@@ -414,9 +433,34 @@ function pluginRuntime(
   configManager: ConfigManager,
   killSwitches: KillSwitchRegistry,
   capabilities: CapabilityRegistry,
+  previous?: AiRuntime,
 ): AiRuntime {
   const stores = options.stores ?? {};
   const clock = options.clock ?? systemClock();
+  const idempotencyTuning = configManager.active().governance.idempotency;
+  // F17: a rebuild reuses the live registries so counters survive the swap. Quota/rate
+  // policies are passed per call from the active snapshot (quota.ts, rate-limit.ts), so
+  // sharing the managers across snapshots is safe; `syncGovernanceTuning` retunes breaker
+  // thresholds and the idempotency window right after the swap.
+  const previousGovernance = previous?.governanceServices;
+  const idempotency =
+    previousGovernance?.idempotency ??
+    new IdempotencyRegistry({
+      store:
+        stores.idempotency ??
+        new InMemoryIdempotencyStore({
+          clock,
+          ...(idempotencyTuning.retentionMs === undefined ? {} : { retentionMs: idempotencyTuning.retentionMs }),
+          ...(idempotencyTuning.capacity === undefined ? {} : { capacity: idempotencyTuning.capacity }),
+        }),
+      clock,
+      ...(idempotencyTuning.retentionMs === undefined ? {} : { retentionMs: idempotencyTuning.retentionMs }),
+    });
+  const rateLimiter =
+    previousGovernance?.rateLimiter ?? new RateLimiter({ store: stores.rateLimit ?? new InMemoryRateLimitStore(), clock });
+  const quotas =
+    previousGovernance?.quotas ??
+    new QuotaManager({ store: stores.quota ?? new InMemoryQuotaStore(), clock, policies: configManager.active().governance.quotas });
   return new AiRuntime({
     configManager,
     capabilities,
@@ -429,19 +473,9 @@ function pluginRuntime(
       ...(stores.metrics === undefined ? {} : { metrics: stores.metrics }),
       ...(stores.events === undefined ? {} : { events: stores.events }),
       ...(stores.usageLedger === undefined ? {} : { ledger: stores.usageLedger }),
-      idempotency: new IdempotencyRegistry({
-        store: stores.idempotency ?? new InMemoryIdempotencyStore({ clock }),
-        clock,
-      }),
-      rateLimiter: new RateLimiter({
-        store: stores.rateLimit ?? new InMemoryRateLimitStore(),
-        clock,
-      }),
-      quotas: new QuotaManager({
-        store: stores.quota ?? new InMemoryQuotaStore(),
-        clock,
-        policies: configManager.active().governance.quotas,
-      }),
+      idempotency,
+      rateLimiter,
+      quotas,
     },
   });
 }

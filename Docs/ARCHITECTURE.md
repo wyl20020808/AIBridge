@@ -156,6 +156,11 @@ capability. Nothing resolves one from the other.
 
 The single ingress shape. Every call, generic or specialized, is one of these.
 
+> The snippets in this section are **illustrative and pre-Stage-7**: literal version strings
+> (e.g. `'1.0'` below) and field lists may lag the implementation. The authority is
+> `packages/contracts/src/` — in particular `versions.ts` for current versions and the
+> `INTEGRATION_CONTRACT_V1.md` compatibility note for what changed per stage.
+
 ```ts
 export const AI_BRIDGE_CONTRACT_VERSION = '1.0';
 
@@ -444,6 +449,13 @@ export type AiError = {
 Knowing the stage is what turns "it failed" into a diagnosis without exposing a provider message.
 
 ### 6.2 `AiErrorReason` — closed sub-reasons
+
+> Illustrative and pre-Stage-7: this table omits reasons added in Stages 3/5/6
+> (`PROVIDER_AUTH_FAILED`, `PROVIDER_REQUEST_REJECTED`, `PROVIDER_UNAVAILABLE`,
+> `QUOTA_CAPABILITY`, `QUOTA_PROVIDER`, `COST_BUDGET_EXHAUSTED`,
+> `PROVIDER_BALANCE_EXHAUSTED`, `TRUSTED_FIELD_IN_CONSUMER_REQUEST`,
+> `OUTPUT_SCHEMA_OVERRIDE_FORBIDDEN`, `JSON_PARSE_FAILED`, …). The authority is
+> `packages/contracts/src/errors.ts` (`REASON_META`).
 
 ```
 ENVELOPE      CONTRACT_VERSION_UNSUPPORTED · MALFORMED_ENVELOPE · CAPABILITY_UNKNOWN

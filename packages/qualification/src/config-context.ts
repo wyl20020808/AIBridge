@@ -37,6 +37,9 @@ export type QualificationConfigProvider = {
   readonly models: readonly QualificationConfigModel[];
   readonly adapterVersion: string;
   readonly contractVersion: string;
+  /** Authentication / wire-protocol facts; when known they join the config digest. */
+  readonly authScheme?: string;
+  readonly wireProtocol?: string;
 };
 
 /** The qualification features the config declares, intersected with the closed feature set. */
@@ -69,6 +72,8 @@ export function deriveQualificationContexts(
       endpoint,
       providerModelSafeRef: modelRef,
       declaredFeatures: model.features,
+      ...(provider.authScheme === undefined ? {} : { authScheme: provider.authScheme }),
+      ...(provider.wireProtocol === undefined ? {} : { wireProtocol: provider.wireProtocol }),
     });
     for (const feature of declared) {
       const identity: QualificationIdentity = {

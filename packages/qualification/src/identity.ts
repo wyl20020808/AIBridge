@@ -76,7 +76,9 @@ export function safeEndpointIdentity(baseUrl: string): SafeEndpointIdentity {
     return { scheme: 'unknown', host: 'unknown' };
   }
   const scheme = parsed.protocol.replace(/:$/, '') || 'unknown';
-  const host = parsed.hostname.toLowerCase() || 'unknown';
+  // A trailing DNS root dot is equivalent to the bare name; normalize so `host.` and `host`
+  // share one qualification identity (mirrors `checkEndpointSafety` in `@aibridge/core`).
+  const host = parsed.hostname.toLowerCase().replace(/\.$/, '') || 'unknown';
   const portText = parsed.port;
   if (portText === '') {
     return { scheme, host };
@@ -99,6 +101,13 @@ export function configDigest(input: {
   readonly endpoint: SafeEndpointIdentity;
   readonly providerModelSafeRef: string;
   readonly declaredFeatures: readonly string[];
+  /**
+   * Authentication and wire-protocol facts: an auth-scheme-only change must invalidate a
+   * qualification (a record earned with one credential channel must not stay green under
+   * another). Optional so older stored contexts still hash; callers pass them when known.
+   */
+  readonly authScheme?: string;
+  readonly wireProtocol?: string;
 }): string {
   const canonical = [
     `preset=${input.preset}`,
@@ -107,6 +116,8 @@ export function configDigest(input: {
     `endpoint=${input.endpoint.scheme}://${input.endpoint.host}:${input.endpoint.port ?? ''}`,
     `model=${input.providerModelSafeRef}`,
     `features=${[...input.declaredFeatures].sort().join(',')}`,
+    `auth=${input.authScheme ?? ''}`,
+    `wire=${input.wireProtocol ?? ''}`,
   ].join('|');
   return `cfg#${fnv1a64(canonical)}`;
 }

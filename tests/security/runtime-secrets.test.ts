@@ -102,7 +102,10 @@ describe('the credential never crosses the trusted boundary', () => {
 
     fake.push({ sse: [JSON.stringify({ error: { type: 'server_error', message: `bad token ${syntheticSecret}` } })] });
     const events = [];
-    for await (const event of runtime.stream(textRequest(), context)) {
+    // A fresh turn: the governed stream dispatches anew (replaying the failed turn above
+    // must not dispatch), hits the poisoned frame, and the operator channel sees redacted prose.
+    const streamRequest = { ...textRequest(), requestId: 'req-secret-2', idempotencyKey: 'turn-secret.attempt-2' };
+    for await (const event of runtime.stream(streamRequest, context)) {
       events.push(event);
     }
     assertNoLeak('stream events', [JSON.stringify(events)]);

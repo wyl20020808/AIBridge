@@ -80,6 +80,18 @@ export interface RateLimitStorePort {
     limit: number,
     windowMs: number,
   ): Promise<{ readonly allowed: boolean; readonly retryAfterMs: number }>;
+  /**
+   * Dry-run a consumption without recording it. Optional: stores that implement it let
+   * `RateLimiter.consume` check every policy **before** consuming any, so a refused call
+   * consumes nothing. Stores without it keep the legacy order (policies before the refusal
+   * keep their hit). Per-bucket atomicity still comes from `tryConsume` in both paths.
+   */
+  check?(
+    bucket: string,
+    atMs: number,
+    limit: number,
+    windowMs: number,
+  ): Promise<{ readonly allowed: boolean; readonly retryAfterMs: number }>;
 }
 
 /** The in-memory sliding-window reference implementation. */
@@ -97,16 +109,37 @@ export class InMemoryRateLimitStore implements RateLimitStorePort {
     limit: number,
     windowMs: number,
   ): Promise<{ readonly allowed: boolean; readonly retryAfterMs: number }> {
+    return Promise.resolve(this.#probe(bucket, atMs, limit, windowMs, true));
+  }
+
+  check(
+    bucket: string,
+    atMs: number,
+    limit: number,
+    windowMs: number,
+  ): Promise<{ readonly allowed: boolean; readonly retryAfterMs: number }> {
+    return Promise.resolve(this.#probe(bucket, atMs, limit, windowMs, false));
+  }
+
+  #probe(
+    bucket: string,
+    atMs: number,
+    limit: number,
+    windowMs: number,
+    record: boolean,
+  ): { readonly allowed: boolean; readonly retryAfterMs: number } {
     const cutoff = atMs - windowMs;
     const hits = (this.#hits.get(bucket) ?? []).filter((hit) => hit > cutoff);
     if (hits.length >= limit) {
       this.#hits.set(bucket, hits);
       const oldest = hits[0] ?? atMs;
-      return Promise.resolve({ allowed: false, retryAfterMs: Math.max(0, oldest + windowMs - atMs) });
+      return { allowed: false, retryAfterMs: Math.max(0, oldest + windowMs - atMs) };
     }
-    hits.push(atMs);
-    this.#hits.set(bucket, hits);
-    return Promise.resolve({ allowed: true, retryAfterMs: 0 });
+    if (record) {
+      hits.push(atMs);
+      this.#hits.set(bucket, hits);
+    }
+    return { allowed: true, retryAfterMs: 0 };
   }
 }
 
@@ -150,32 +183,52 @@ export class RateLimiter {
   }
 
   /**
-   * Consume one call against every policy. A refusal consumes nothing further: the window is only
-   * extended by calls that were actually allowed (Phase 22).
+   * Consume one call against every policy. When the store supports `check`, every policy is
+   * probed **before** any is consumed, so a refused call consumes nothing anywhere; otherwise
+   * (legacy stores) policies checked before the refusal keep their hit and only the refusal
+   * itself consumes nothing further. Either way the window is never extended by a call that
+   * was refused by the policy owning that window (Phase 22).
    *
    * `policies` overrides the construction-time set — a request always checks the policies of **its
    * own config snapshot** (Phase 42), never a mixture of two.
    */
   async consume(request: RateLimitRequest, policies: readonly RateLimitPolicy[] = this.#policies): Promise<RateLimitDecision> {
+    const atMs = this.#clock.nowMs();
+    const check = this.#store.check;
+    if (check !== undefined) {
+      for (const policy of policies) {
+        const probe = await check.call(this.#store, rateBucketKey(policy, request), atMs, policy.limit, policy.windowMs);
+        if (!probe.allowed) {
+          return this.#refusal(policy, probe.retryAfterMs);
+        }
+      }
+    }
     for (const policy of policies) {
       const bucket = rateBucketKey(policy, request);
-      const outcome = await this.#store.tryConsume(bucket, this.#clock.nowMs(), policy.limit, policy.windowMs);
+      const outcome =
+        check !== undefined
+          ? await this.#store.tryConsume(bucket, atMs, policy.limit, policy.windowMs)
+          : await this.#store.tryConsume(bucket, this.#clock.nowMs(), policy.limit, policy.windowMs);
       if (!outcome.allowed) {
-        return {
-          allowed: false,
-          dimension: policy.dimension,
-          retryAfterMs: outcome.retryAfterMs,
-          error: makeAiError({
-            reason: rateLimitReason(policy.dimension),
-            message: 'The caller is sending requests too quickly. Retry after the reported delay.',
-            retryAfterMs: outcome.retryAfterMs,
-            // `dimension` is the metering unit (rate limiting meters calls); the **scope** is the
-            // reason (`RATE_LIMIT_SUBJECT`, …). Same convention as the quota errors.
-            details: { dimension: 'REQUESTS', limit: policy.limit, windowMs: policy.windowMs },
-          }),
-        };
+        return this.#refusal(policy, outcome.retryAfterMs);
       }
     }
     return { allowed: true };
+  }
+
+  #refusal(policy: RateLimitPolicy, retryAfterMs: number): RateLimitDecision {
+    return {
+      allowed: false,
+      dimension: policy.dimension,
+      retryAfterMs,
+      error: makeAiError({
+        reason: rateLimitReason(policy.dimension),
+        message: 'The caller is sending requests too quickly. Retry after the reported delay.',
+        retryAfterMs,
+        // `dimension` is the metering unit (rate limiting meters calls); the **scope** is the
+        // reason (`RATE_LIMIT_SUBJECT`, …). Same convention as the quota errors.
+        details: { dimension: 'REQUESTS', limit: policy.limit, windowMs: policy.windowMs },
+      }),
+    };
   }
 }

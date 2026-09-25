@@ -230,7 +230,11 @@ export class OpenAiCompatibleAdapter implements AiProviderAdapter {
           usage = { ...usage, ...mapUsage(parsed.usage) };
           const outcome = consumeChatChunk(parsed, mapFinishReason);
           if (outcome.kind === 'DELTA') {
-            yield { kind: 'TEXT_DELTA', text: outcome.text };
+            // A delta arriving after FINISH in the same flush is a late delta, not output:
+            // the stream is logically closed, so it is discarded (exactly-one-terminal).
+            if (!finished) {
+              yield { kind: 'TEXT_DELTA', text: outcome.text };
+            }
           } else if (outcome.kind === 'FINISH') {
             finishReason = outcome.finishReason;
             finished = true;

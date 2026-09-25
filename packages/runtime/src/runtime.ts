@@ -39,10 +39,8 @@ import {
   createIssue,
   invalid,
   makeAiError,
-  makeStreamCompleted,
   makeStreamFailed,
   makeStreamStarted,
-  makeStreamTextDelta,
   parseConsumerAiRequest,
   parseTextGenerateInput,
   parseStructuredGenerateInput,
@@ -51,11 +49,9 @@ import {
   isCapabilityGranted,
   valid,
   type AiError,
-  type AiFinishReason,
   type AiProviderAdapter,
   type AiResult,
   type AiStreamEvent,
-  type AiUsage,
   type AiWarning,
   type CapabilityRequirements,
   type ComposedAiRequest,
@@ -78,7 +74,6 @@ import {
   allowsCallerOutputSchema,
   isRecord,
   screenAiInput,
-  utf8ByteLength,
   type CapabilityRegistration,
 } from '@aibridge/core';
 import type { Clock, SecretStorePort } from '@aibridge/host-sdk';
@@ -106,19 +101,16 @@ import {
 import {
   budgetExhaustedError,
   cancelledByCallerError,
-  normalizeProviderError,
-  normalizeThrown,
-  providerTimeoutError,
   validationFailureToAiError,
 } from './errors.js';
-import { ExecutionCoordinator, buildProviderRequest, raceAttempt, type ExecutionOutcome, type ExecutionPlan } from './coordinator.js';
+import { ExecutionCoordinator, type ExecutionOutcome, type ExecutionPlan } from './coordinator.js';
 import {
   ConfigManager,
   syntheticSnapshot,
   type RuntimeConfigInput,
   type RuntimeConfigSnapshot,
 } from './config-manager.js';
-import { nullOperatorLog, redactOperatorDetail, type OperatorLogSink } from './operator-log.js';
+import { nullOperatorLog, type OperatorLogSink } from './operator-log.js';
 import { parseCodeDebugInput } from './code-debug.js';
 import {
   classifyModel,
@@ -324,6 +316,9 @@ export class AiRuntime {
   readonly #health: RuntimeHealthRegistry;
   readonly #quotas: QuotaManager;
   readonly #idempotency: IdempotencyRegistry;
+  readonly #rateLimiter: RateLimiter;
+  /** Set once `dispose()` runs; new calls fail closed instead of touching shut-down adapters. */
+  #disposed = false;
 
   constructor(options: RuntimeOptions) {
     this.#capabilities = options.capabilities ?? defaultCapabilityRegistry();
@@ -347,19 +342,31 @@ export class AiRuntime {
     this.#idempotency =
       services.idempotency ??
       new IdempotencyRegistry({
-        store: new InMemoryIdempotencyStore({ clock: this.#clock }),
+        store: new InMemoryIdempotencyStore({
+          clock: this.#clock,
+          ...(this.#snapshot.governance.idempotency.retentionMs === undefined
+            ? {}
+            : { retentionMs: this.#snapshot.governance.idempotency.retentionMs }),
+          ...(this.#snapshot.governance.idempotency.capacity === undefined
+            ? {}
+            : { capacity: this.#snapshot.governance.idempotency.capacity }),
+        }),
         clock: this.#clock,
+        ...(this.#snapshot.governance.idempotency.retentionMs === undefined
+          ? {}
+          : { retentionMs: this.#snapshot.governance.idempotency.retentionMs }),
       });
     this.#breakers =
       services.breakers ?? new CircuitBreakerRegistry({ config: this.#snapshot.governance.breaker, clock: this.#clock });
     this.#health = services.health ?? new RuntimeHealthRegistry({ clock: this.#clock, breakers: this.#breakers });
+    this.#rateLimiter = services.rateLimiter ?? new RateLimiter({ store: new InMemoryRateLimitStore(), clock: this.#clock });
 
     this.#coordinator = new ExecutionCoordinator({
       clock: this.#clock,
       sleeper: services.sleeper ?? systemSleeper(),
       ids: services.ids ?? createIdMint(),
       idempotency: this.#idempotency,
-      rateLimiter: services.rateLimiter ?? new RateLimiter({ store: new InMemoryRateLimitStore(), clock: this.#clock }),
+      rateLimiter: this.#rateLimiter,
       quotas: this.#quotas,
       budget: new BudgetTracker({ policy: this.#snapshot.governance.budget, quotas: this.#quotas, clock: this.#clock }),
       ledger: this.#ledger,
@@ -388,9 +395,71 @@ export class AiRuntime {
     return this.#configManager?.active() ?? this.#snapshot;
   }
 
+  /**
+   * Retune live governance from the **active** snapshot without dropping observed state:
+   * breaker thresholds (counts, open/half-open survive) and the idempotency claim window.
+   * The config manager owns reload; the plugin calls this after every successful reload so a
+   * tuning-only change takes effect even when the provider set — and therefore the runtime —
+   * is unchanged. Store capacities and host-provided registries are construction-time and are
+   * left alone (their owner retunes them).
+   */
+  syncGovernanceTuning(): void {
+    const governance = this.configSnapshot.governance;
+    if (this.#breakers instanceof CircuitBreakerRegistry) {
+      this.#breakers.reconfigure(governance.breaker);
+    }
+    if (this.#idempotency instanceof IdempotencyRegistry) {
+      this.#idempotency.reconfigure(governance.idempotency.retentionMs);
+    }
+  }
+
   /** The append-only usage ledger (operator-side). */
   get usageLedger(): UsageLedgerPort {
     return this.#ledger;
+  }
+
+  /**
+   * Live governance services. Host-lifecycle surface: when the plugin rebuilds the runtime
+   * around a new provider set (reload), it hands these back in so quota/rate/idempotency
+   * counters survive the swap instead of resetting to zero (F17). Never null — the runtime
+   * always owns exactly one of each.
+   */
+  get governanceServices(): {
+    readonly idempotency: IdempotencyRegistry;
+    readonly rateLimiter: RateLimiter;
+    readonly quotas: QuotaManager;
+  } {
+    return { idempotency: this.#idempotency, rateLimiter: this.#rateLimiter, quotas: this.#quotas };
+  }
+
+  /**
+   * Shut the runtime down: every bound adapter gets its optional `shutdown()` call (once —
+   * dispose is idempotent), the provider map is dropped, and new `execute`/`stream` calls fail
+   * closed with `RUNTIME_DISPOSED` instead of touching released adapters. In-flight calls run
+   * to their own terminal result against already-resolved bindings; adapter shutdown failures
+   * are swallowed — a failing adapter must not break host teardown.
+   */
+  async dispose(): Promise<void> {
+    if (this.#disposed) {
+      return;
+    }
+    this.#disposed = true;
+    const adapters = [...this.#providers.values()].map((bound) => bound.adapter);
+    this.#providers.clear();
+    await Promise.all(
+      adapters.map(async (adapter) => {
+        try {
+          await adapter.shutdown?.();
+        } catch {
+          // Ignored: teardown must not throw.
+        }
+      }),
+    );
+  }
+
+  /** Whether `dispose()` has run. */
+  get disposed(): boolean {
+    return this.#disposed;
   }
 
   /** The metrics sink, for an operator-side exporter. */
@@ -419,6 +488,11 @@ export class AiRuntime {
    * adapter's `bindCredentials`; this class never stores the value in its own state.
    */
   async registerProvider(registration: RuntimeProviderRegistration): Promise<ValidationResult<ProviderDescriptor>> {
+    if (this.#disposed) {
+      return invalid('INTERNAL_ERROR', [
+        createIssue('INVARIANT_VIOLATION', '$', 'this AiRuntime instance has been disposed'),
+      ]);
+    }
     const adapter = registration.adapter;
     const issues: ValidationIssue[] = [];
     if (adapter.adapterApiVersion !== PROVIDER_ADAPTER_API_VERSION) {
@@ -597,121 +671,15 @@ export class AiRuntime {
       return;
     }
 
-    const providerRequest = buildProviderRequest(this.#executionPlan(plan), target, providerDeadlineAtMs, options.cancellation, undefined);
-    const iterator = streamText.call(target.route.adapter, providerRequest)[Symbol.asyncIterator]();
-    let accumulated = '';
-    let usage: AiUsage = {};
-    let finishReason: AiFinishReason = 'UNKNOWN';
-    let finished = false;
-
-    const failStream = (error: AiError, finish: AiFinishReason = 'UNKNOWN'): AiStreamEvent =>
-      makeStreamFailed({
-        error,
-        usage,
-        finishReason: finish,
-        providerMetadata: projectionFor(target, 1, false),
-        latencyMs: Math.max(0, this.#clock.nowMs() - startedAtMs),
-        warnings: plan.warnings,
-      });
-
-    try {
-      for (;;) {
-        const timeoutMs = Math.max(0, providerDeadlineAtMs - this.#clock.nowMs());
-        const step = await raceAttempt(iterator.next(), timeoutMs, options.cancellation);
-        if (step.kind === 'cancelled') {
-          yield failStream(cancelledByCallerError());
-          return;
-        }
-        if (step.kind === 'deadline') {
-          const error = this.#clock.nowMs() >= plan.deadlineAtMs ? budgetExhaustedError(0) : providerTimeoutError();
-          yield failStream(error);
-          return;
-        }
-        if (step.kind === 'threw') {
-          yield failStream(normalizeThrown(step.error));
-          return;
-        }
-        if (step.value.done) {
-          break;
-        }
-        const event = step.value.value;
-        if (event.kind === 'TEXT_DELTA') {
-          if (event.text.length === 0) {
-            continue;
-          }
-          accumulated += event.text;
-          yield makeStreamTextDelta(event.text);
-          continue;
-        }
-        if (event.kind === 'FINISH') {
-          usage = event.usage;
-          finishReason = event.finishReason;
-          finished = true;
-          break;
-        }
-        this.#rawErrorLog(plan.identity, target.providerId, event.error);
-        yield failStream(normalizeProviderError(event.error));
-        return;
-      }
-    } finally {
-      // Termination is terminal first, producer cleanup second: a generator parked on an `await`
-      // only processes `return()` once that settles, and a cancelled consumer must not wait for it.
-      void Promise.resolve(iterator.return?.()).catch(() => undefined);
-    }
-
-    if (!finished) {
-      yield failStream(
-        normalizeProviderError({
-          category: 'UPSTREAM',
-          reason: 'PROVIDER_BAD_RESPONSE',
-          rawMessage: 'provider stream ended without a finish event',
-        }),
-      );
-      return;
-    }
-
-    const bytes = utf8ByteLength(accumulated);
-    if (bytes > plan.maxOutputBytes) {
-      yield failStream(
-        validationFailureToAiError(
-          {
-            reason: 'OUTPUT_TOO_LARGE',
-            code: 'SCHEMA_MISMATCH',
-            stage: 'EXTRACTION',
-            issues: [{ code: 'SIZE_EXCEEDED', path: '$', message: 'streamed output exceeded the cap' }],
-          },
-          'The streamed answer exceeds the declared output size cap.',
-        ),
-        finishReason,
-      );
-      return;
-    }
-
-    yield makeStreamCompleted({
-      text: accumulated,
-      usage,
-      finishReason,
-      providerMetadata: projectionFor(target, 1, false),
-      latencyMs: Math.max(0, this.#clock.nowMs() - startedAtMs),
-      warnings: plan.warnings,
-    });
+    // The single governed attempt — idempotency, budget, quota, rate limit, kill switch,
+    // breaker and the usage ledger — lives in the coordinator, next to `execute`'s. This entry
+    // keeps only the stream-shaped pre-checks (no ledger: a rejected call never started).
+    yield* this.#coordinator.stream(this.#executionPlan(plan), options);
   }
 
   /* -------------------------------------------------------------------------------------------
    * Internals
    * ---------------------------------------------------------------------------------------- */
-
-  #rawErrorLog(identity: ResultIdentity, providerId: string, raw: { readonly rawMessage?: string }): void {
-    this.#log.write({
-      level: 'error',
-      event: 'provider.raw_error',
-      atMs: this.#clock.nowMs(),
-      requestId: identity.requestId,
-      capability: identity.capability,
-      providerId,
-      ...(raw.rawMessage === undefined ? {} : { detail: redactOperatorDetail(raw.rawMessage, this.#boundSecrets) }),
-    });
-  }
 
   /** A rejected call never reached the coordinator; say so honestly in the provenance. */
   #rejectedOutcome(
@@ -817,6 +785,11 @@ export class AiRuntime {
       error,
       warnings,
     });
+
+    // A disposed runtime never dispatches: fail closed before any governance or provider contact.
+    if (this.#disposed) {
+      return fail(makeAiError({ reason: 'INTERNAL_ERROR', message: 'This AiRuntime instance has been disposed.' }));
+    }
 
     // Cancelled before dispatch ⇒ `CANCELLED`, **no charge** (ARCHITECTURE.md §13.2). Checked
     // first so a pre-cancelled call never reaches a provider, never a capability, never a meter.

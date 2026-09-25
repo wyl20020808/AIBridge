@@ -14,6 +14,13 @@
  *  - A server-capability plugin has no browser slot, so `contributes.slots` is empty and `entry`
  *    names the module a host loads through its own trusted bootstrap.
  */
+import {
+  AIBRIDGE_CONTRACT_VERSION,
+  AIBRIDGE_ERROR_VERSION,
+  AIBRIDGE_RESPONSE_SCHEMA_VERSION,
+  GENERIC_REQUEST_SCHEMA_VERSION,
+} from '@aibridge/contracts';
+
 export const AIBRIDGE_PLUGIN_ID = 'ai.bridge';
 
 /** The host plugin API major this entry speaks. */
@@ -45,10 +52,12 @@ export type AiBridgePluginManifest = {
 export const AIBRIDGE_PLUGIN_ENTRY_MODULE = '@aibridge/host';
 
 export const AIBRIDGE_PLUGIN_CONTRACT_VERSIONS: Readonly<Record<string, string>> = Object.freeze({
-  aiBridge: '1.1',
-  genericAiRequest: '1.0',
-  genericAiResponse: '1.1',
-  aiError: '1.1',
+  // Derived from `@aibridge/contracts` — the frozen contract is the single home for these
+  // values, never a literal duplicated here (stabilization audit: VERSION_DRIFT).
+  aiBridge: AIBRIDGE_CONTRACT_VERSION,
+  genericAiRequest: GENERIC_REQUEST_SCHEMA_VERSION,
+  genericAiResponse: AIBRIDGE_RESPONSE_SCHEMA_VERSION,
+  aiError: AIBRIDGE_ERROR_VERSION,
 });
 
 /**

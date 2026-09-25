@@ -91,6 +91,10 @@ const CLASS_BY_REASON: Readonly<Partial<Record<AiErrorReason, FailureClass>>> = 
   PROVIDER_UNAVAILABLE: 'PROVIDER_TRANSIENT',
   PROVIDER_TIMEOUT: 'PROVIDER_TRANSIENT',
   PROVIDER_BAD_RESPONSE: 'PROVIDER_TRANSIENT',
+  // Throttling is transient by identity, never by accident of the `retryable` flag: an adapter
+  // emitting `PROVIDER_THROTTLED` with `retryable: false` must still classify as transient (the
+  // retry policy's `RATE_LIMITED`-code rule separately refuses same-provider retries).
+  PROVIDER_THROTTLED: 'PROVIDER_TRANSIENT',
 
   PROVIDER_AUTH_FAILED: 'PROVIDER_PERMANENT',
   // A depleted balance is one wallet's problem, not the request's or the deployment's — the

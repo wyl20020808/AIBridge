@@ -95,3 +95,12 @@ starts needing a host database read, it is out of scope — record the need as a
 
 Every stage ends with `git status` clean and a report in `Docs/reports/`. Do not leave scratch
 files, temp exports or inspection dumps in the repository.
+
+## 11. V1 feature freeze
+
+Do not add a new provider, capability, gateway, tool-calling, embedding, vision, UI, or platform
+feature without a concrete consumer requirement or an approved roadmap reopening. AIBridge V1 is
+stabilized; reopen development only for a real consumer requirement, a production defect, a
+security issue, performance/reliability evidence, or an integration-contract requirement.
+
+Failure prevented: a stabilized capability surface silently re-entering unbounded feature growth.

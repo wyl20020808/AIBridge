@@ -145,6 +145,12 @@ from source, fixtures, docs, a tracked `.env`, browser cookies or a ChatGPT sess
 provider id, model alias, feature, status, latency, a usage summary and a coarse failure class. A
 safe document is written to `tmp/qualification/live-qualification.json` (gitignored).
 
+> Note — `jsonSchema` folding: the live script probes `structuredJson` whenever the model declares
+> `structuredJson` **or** `jsonSchema` (see `requested` in `scripts/qualify-providers.mjs`), so a
+> `jsonSchema` declaration is exercised through the structured-JSON probe rather than a separate
+> `jsonSchema`-as-feature probe. Deterministic adapter tests remain authoritative for the
+> per-mode structured semantics.
+
 A missing credential for one provider reports `LIVE_NOT_RUN` and **does not** stop the others or the
 stage (Phase 43). A provider's `LIVE_NOT_RUN` never fails `npm run verify` (Phase 56).
 
